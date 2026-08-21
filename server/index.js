@@ -16,6 +16,7 @@ function readStore() {
   store.history ??= [];
   store.products ??= [];
   store.budget ??= { monthly: 0 };
+  store.items = store.items.map((item) => item.unitPrice === 0 && !item.productId ? { ...item, unitPrice: null } : item);
   return store;
 }
 
@@ -79,14 +80,16 @@ app.patch("/api/items/:id", (request, response) => {
   const item = store.items.find((entry) => entry.id === request.params.id);
   if (!item) return response.status(404).json({ message: "Item not found." });
 
-  const { name, quantity, completed, priority } = request.body;
+  const { name, quantity, completed, priority, unitPrice } = request.body;
   if (name !== undefined && String(name).trim()) item.name = String(name).trim();
   if (quantity !== undefined) item.quantity = Math.max(1, Number(quantity) || 1);
   if (completed !== undefined) item.completed = Boolean(completed);
   if (priority !== undefined && ["high", "medium", "low"].includes(priority)) item.priority = priority;
+  if (unitPrice === null || unitPrice === "") item.unitPrice = null;
+  if (unitPrice !== undefined && unitPrice !== null && unitPrice !== "" && Number.isFinite(Number(unitPrice)) && Number(unitPrice) >= 0) item.unitPrice = Number(Number(unitPrice).toFixed(2));
   const matchedProduct = productFor(item.name, store.products);
   item.category = matchedProduct?.category || categoryFor(item.name);
-  item.unitPrice = matchedProduct?.price || item.unitPrice || 0;
+  if (unitPrice === undefined) item.unitPrice = matchedProduct?.price || item.unitPrice || null;
   item.productId = matchedProduct?.id || item.productId || null;
   writeStore(store);
   return response.json(item);
@@ -147,13 +150,15 @@ app.get("/api/budget/plan", (_request, response) => {
   const priorityWeight = { high: 3, medium: 2, low: 1 };
   const candidates = store.items
     .filter((item) => !item.completed)
-    .map((item) => ({ ...item, estimatedCost: Number((item.quantity * (item.unitPrice || 0)).toFixed(2)) }))
+    .map((item) => ({ ...item, estimatedCost: item.unitPrice == null ? null : Number((item.quantity * item.unitPrice).toFixed(2)) }))
     .sort((left, right) => priorityWeight[right.priority] - priorityWeight[left.priority] || left.estimatedCost - right.estimatedCost);
   let remaining = store.budget.monthly;
   const buyNow = [];
   const defer = [];
   for (const item of candidates) {
-    if (!item.estimatedCost || !store.budget.monthly || item.estimatedCost <= remaining) {
+    if (item.estimatedCost === null) {
+      defer.push(item);
+    } else if (!store.budget.monthly || item.estimatedCost <= remaining) {
       buyNow.push(item);
       remaining = Math.max(0, remaining - item.estimatedCost);
     } else {

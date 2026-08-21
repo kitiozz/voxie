@@ -1189,6 +1189,39 @@ h2 {
   gap: 10px;
 }
 
+.price-editor {
+  display: block;
+  width: 118px;
+  margin-top: 8px;
+  color: #8a9d95;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.price-editor > div {
+  display: flex;
+  align-items: center;
+  margin-top: 3px;
+  border: 1px solid #dcecdf;
+  border-radius: 7px;
+  padding: 0 6px;
+  color: #527268;
+  background: #f8fcf9;
+}
+
+.price-editor input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 5px 3px;
+  color: #385e50;
+  background: transparent;
+  font-size: 12px;
+}
+
 .item-actions select {
   max-width: 104px;
   border: 1px solid #dcecdf;
@@ -1307,6 +1340,10 @@ h2 {
   .item-actions {
     grid-column: 3 / 5;
     justify-content: space-between;
+  }
+
+  .price-editor {
+    width: 105px;
   }
 
   .item-actions select {
