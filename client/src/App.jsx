@@ -6,17 +6,34 @@ const languages = ["English", "Español", "Français", "हिंदी", "Deuts
 const languageCodes = { English: "en-US", Español: "es-ES", Français: "fr-FR", हिंदी: "hi-IN", Deutsch: "de-DE" };
 const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
-function productIllustration(name) {
+function productIllustration(name, category = "") {
   const value = name.toLowerCase();
-  if (/milk|cheese|yogurt|butter/.test(value)) return { emoji: "🥛", tone: "mint" };
-  if (/mango/.test(value)) return { emoji: "🥭", tone: "peach" };
-  if (/apple|orange|banana|mango|fruit/.test(value)) return { emoji: "🍎", tone: "peach" };
-  if (/water|juice|coffee|tea|soda/.test(value)) return { emoji: "🧃", tone: "sky" };
-  if (/bread|bakery/.test(value)) return { emoji: "🥖", tone: "butter" };
-  if (/toothpaste|soap|shampoo/.test(value)) return { emoji: "🪥", tone: "lilac" };
-  if (/egg/.test(value)) return { emoji: "🥚", tone: "butter" };
-  if (/chips|cookie|chocolate|snack/.test(value)) return { emoji: "🍪", tone: "pink" };
-  return { emoji: "🛍️", tone: "mint" };
+  if (/\b(milk|cheese|yogurt|butter)\b/.test(value)) return { emoji: "🥛", tone: "mint" };
+  if (/\bmango(?:es)?\b/.test(value)) return { emoji: "🥭", tone: "peach" };
+  if (/\bapple(?:s)?\b/.test(value)) return { emoji: "🍎", tone: "peach" };
+  if (/\borange(?:s)?\b/.test(value)) return { emoji: "🍊", tone: "peach" };
+  if (/\bbanana(?:s)?\b/.test(value)) return { emoji: "🍌", tone: "butter" };
+  if (/\bwater\b/.test(value)) return { emoji: "💧", tone: "sky" };
+  if (/\bjuice\b/.test(value)) return { emoji: "🧃", tone: "sky" };
+  if (/\bcoffee\b/.test(value)) return { emoji: "☕", tone: "butter" };
+  if (/\btea\b/.test(value)) return { emoji: "🍵", tone: "mint" };
+  if (/\bsoda\b/.test(value)) return { emoji: "🥤", tone: "sky" };
+  if (/\bbread|bakery\b/.test(value)) return { emoji: "🍞", tone: "butter" };
+  if (/\btoothpaste\b/.test(value)) return { emoji: "🪥", tone: "lilac" };
+  if (/\bsoap\b/.test(value)) return { emoji: "🧼", tone: "lilac" };
+  if (/\bshampoo\b/.test(value)) return { emoji: "🧴", tone: "lilac" };
+  if (/\beggs?\b/.test(value)) return { emoji: "🥚", tone: "butter" };
+  if (/\bchips?\b/.test(value)) return { emoji: "🍟", tone: "pink" };
+  if (/\bcookie|snack\b/.test(value)) return { emoji: "🍪", tone: "pink" };
+  if (/\bchocolate\b/.test(value)) return { emoji: "🍫", tone: "pink" };
+  if (/\bpopcorn\b/.test(value)) return { emoji: "🍿", tone: "butter" };
+  if (category === "Produce") return { emoji: "🥬", tone: "mint" };
+  if (category === "Dairy") return { emoji: "🥛", tone: "mint" };
+  if (category === "Beverages") return { emoji: "🥤", tone: "sky" };
+  if (category === "Bakery") return { emoji: "🍞", tone: "butter" };
+  if (category === "Personal Care") return { emoji: "🧴", tone: "lilac" };
+  if (category === "Snacks") return { emoji: "🍪", tone: "pink" };
+  return { emoji: "🛒", tone: "mint" };
 }
 
 function MicrophoneIcon() {
@@ -134,9 +151,9 @@ function App() {
       <section className="summary-card"><p>{totalItems} {totalItems === 1 ? "item" : "items"} to buy</p><strong>~$0.00</strong><span> estimated</span></section>
       <p className="notice">{isLoading ? "Processing your request..." : `✦ ${voiceMessage}`}</p>
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
-      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const visual = productIllustration(item.name); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className={`item-art ${visual.tone}`}>{visual.emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p></div><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
+      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const visual = productIllustration(item.name, item.category); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className={`item-art ${visual.tone}`}>{visual.emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p></div><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
-      {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => { const visual = productIllustration(product.name); return <article className="product-card" key={product.id}><div className={`product-art ${visual.tone}`}>{visual.emoji}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>; })}</div></section>}
+      {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => { const visual = productIllustration(product.name, product.category); return <article className="product-card" key={product.id}><div className={`product-art ${visual.tone}`}>{visual.emoji}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>; })}</div></section>}
     </section>
     <footer className="mic-bar"><button className="mic-button" aria-label="Start voice command" onClick={startListening}><MicrophoneIcon /></button><p>Tap to speak</p></footer>
     {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={() => setIsRecording(false)} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={startListening} aria-label="Listen again"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
