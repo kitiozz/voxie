@@ -9,6 +9,7 @@ const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven:
 function productIllustration(name) {
   const value = name.toLowerCase();
   if (/milk|cheese|yogurt|butter/.test(value)) return { emoji: "🥛", tone: "mint" };
+  if (/mango/.test(value)) return { emoji: "🥭", tone: "peach" };
   if (/apple|orange|banana|mango|fruit/.test(value)) return { emoji: "🍎", tone: "peach" };
   if (/water|juice|coffee|tea|soda/.test(value)) return { emoji: "🧃", tone: "sky" };
   if (/bread|bakery/.test(value)) return { emoji: "🥖", tone: "butter" };
