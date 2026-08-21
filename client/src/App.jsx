@@ -38,18 +38,21 @@ function App() {
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`), fetch(`${API_URL}/health-profile`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse, healthResponse]) => {
-      if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok || !healthResponse.ok) throw new Error("API unavailable");
+    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
+      if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok) throw new Error("API unavailable");
       setItems(await itemResponse.json());
       setSuggestions(await suggestionResponse.json());
       const budget = await budgetResponse.json();
       setMonthlyBudget(budget.monthly);
       setBudgetPlan(await planResponse.json());
+    }).catch(() => setVoiceMessage("Start the backend server to save your shopping list.")).finally(() => setIsLoading(false));
+    Promise.all([fetch(`${API_URL}/health-profile`)]).then(async ([healthResponse]) => {
+      if (!healthResponse.ok) return;
       const profile = await healthResponse.json();
       setHealthProfile(profile);
       const wellnessResponse = await fetch(`${API_URL}/wellness-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
       if (wellnessResponse.ok) setWellnessPlan(await wellnessResponse.json());
-    }).catch(() => setVoiceMessage("Start the backend server to save your shopping list.")).finally(() => setIsLoading(false));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => () => recognitionRef.current?.stop(), []);
