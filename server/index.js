@@ -77,7 +77,10 @@ app.post("/api/parse-command", async (request, response) => {
       }),
     });
 
-    if (!completion.ok) return response.status(502).json({ message: "Gemini request failed." });
+    if (!completion.ok) {
+      const status = completion.status === 429 ? 429 : 502;
+      return response.status(status).json({ message: status === 429 ? "Gemini quota exceeded. Please wait or check your Gemini billing and limits." : "Gemini request failed." });
+    }
     const payload = await completion.json();
     const result = JSON.parse(payload.candidates[0].content.parts[0].text);
     const item = cleanItemName(result.item || result.query);
