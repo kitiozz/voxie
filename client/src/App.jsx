@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
@@ -66,6 +66,7 @@ function App() {
   const [recognizedText, setRecognizedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [voiceMessage, setVoiceMessage] = useState("Ready for your shopping command.");
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
     Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
@@ -77,6 +78,8 @@ function App() {
       setBudgetPlan(await planResponse.json());
     }).catch(() => setVoiceMessage("Start the backend server to save your shopping list.")).finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => () => recognitionRef.current?.stop(), []);
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
   const estimatedTotal = items.reduce((sum, item) => sum + (item.unitPrice == null ? 0 : item.quantity * item.unitPrice), 0);
@@ -150,7 +153,9 @@ function App() {
   function startListening() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { setVoiceMessage("Speech recognition is not supported here. Please use Chrome or Edge."); return; }
+    recognitionRef.current?.stop();
     const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
     recognition.lang = languageCodes[selectedLanguage];
     recognition.continuous = false;
     recognition.interimResults = true;
@@ -158,10 +163,18 @@ function App() {
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results).map((result) => result[0].transcript).join("");
       setRecognizedText(transcript);
-      if (event.results[event.results.length - 1].isFinal) { setIsRecording(false); setCommand(transcript); executeCommand(transcript); }
+      if (event.results[event.results.length - 1].isFinal) { setIsRecording(false); setCommand(transcript); recognitionRef.current = null; executeCommand(transcript); }
     };
-    recognition.onerror = (event) => { setIsRecording(false); setVoiceMessage(event.error === "not-allowed" ? "Microphone access was blocked. Enable it in your browser settings." : `Voice error: ${event.error}. Please try again.`); };
-    recognition.start();
+    recognition.onerror = (event) => { setIsRecording(false); recognitionRef.current = null; const message = event.error === "not-allowed" ? "Microphone access was blocked. Enable it in your browser settings." : event.error === "network" ? "Speech recognition could not reach the browser voice service. Check your connection or use the text box." : `Voice error: ${event.error}. Please try again.`; setVoiceMessage(message); };
+    recognition.onend = () => { setIsRecording(false); recognitionRef.current = null; };
+    try { recognition.start(); } catch { setIsRecording(false); recognitionRef.current = null; setVoiceMessage("The microphone is already starting. Please try again."); }
+  }
+
+  function stopListening() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsRecording(false);
+    setVoiceMessage("Voice input cancelled.");
   }
 
   return <main className="app">
@@ -177,7 +190,7 @@ function App() {
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => { const visual = productIllustration(product.name, product.category); return <article className="product-card" key={product.id}><div className={`product-art ${visual.tone}`}>{visual.emoji}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>; })}</div></section>}
     </section>
     <footer className="mic-bar"><button className="mic-button" aria-label="Start voice command" onClick={startListening}><MicrophoneIcon /></button><p>Tap to speak</p></footer>
-    {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={() => setIsRecording(false)} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={startListening} aria-label="Listen again"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
+    {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={stopListening} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={stopListening} aria-label="Stop listening"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
   </main>;
 }
 
