@@ -8,7 +8,8 @@ const path = require("path");
 const app = express();
 const port = process.env.PORT || 4000;
 const storePath = path.join(__dirname, "data", "store.json");
-const openAiApiKey = process.env.OPENAI_API_KEY;
+const geminiApiKey = process.env.GEMINI_API_KEY;
+const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 app.use(cors());
 app.use(express.json());
@@ -63,26 +64,22 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.post("/api/parse-command", async (request, response) => {
-  if (!openAiApiKey) return response.status(503).json({ message: "OPENAI_API_KEY is not configured." });
+  if (!geminiApiKey) return response.status(503).json({ message: "GEMINI_API_KEY is not configured." });
 
   try {
-    const completion = await fetch("https://api.openai.com/v1/chat/completions", {
+    const completion = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: "Extract a grocery command as JSON only. Return intent, item, quantity, category, and emoji. Clean filler words such as hello, please, I need, add, buy, and get from item. Emoji must be exactly one emoji character representing the item. Use 🛒 if no suitable emoji exists. Valid intents are add, remove, search." },
-          { role: "user", content: String(request.body.command ?? "") },
-        ],
+        systemInstruction: { parts: [{ text: "Extract a grocery command as JSON only. Return intent, item, quantity, category, and emoji. Clean filler words such as hello, please, I need, add, buy, and get from item. Emoji must be exactly one emoji character representing the item. Use 🛒 if no suitable emoji exists. Valid intents are add, remove, search." }] },
+        contents: [{ role: "user", parts: [{ text: String(request.body.command ?? "") }] }],
+        generationConfig: { temperature: 0, responseMimeType: "application/json" },
       }),
     });
 
-    if (!completion.ok) return response.status(502).json({ message: "OpenAI request failed." });
+    if (!completion.ok) return response.status(502).json({ message: "Gemini request failed." });
     const payload = await completion.json();
-    const result = JSON.parse(payload.choices[0].message.content);
+    const result = JSON.parse(payload.candidates[0].content.parts[0].text);
     const item = cleanItemName(result.item || result.query);
     return response.json({ ...result, item, name: item, query: result.query || item, emoji: validateEmoji(result.emoji) });
   } catch {
