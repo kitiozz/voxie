@@ -9,14 +9,15 @@ const app = express();
 const port = process.env.PORT || 4000;
 const storePath = path.join(__dirname, "data", "store.json");
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const geminiModel = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const geminiModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 app.use(cors());
 app.use(express.json());
 
 function validateEmoji(value) {
   const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(String(value ?? ""))];
-  return segments.length === 1 && /\p{Extended_Pictographic}/u.test(segments[0]) ? segments[0] : "🛒";
+  const grapheme = segments[0]?.trim();
+  return segments.length === 1 && grapheme && !/[\p{Letter}\p{Number}]/u.test(grapheme) ? grapheme : "🛒";
 }
 
 function cleanItemName(value) {
@@ -71,8 +72,7 @@ app.post("/api/parse-command", async (request, response) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: "Extract a grocery command as JSON only. Return intent, item, quantity, category, and emoji. Clean filler words such as hello, please, I need, add, buy, and get from item. Emoji must be exactly one emoji character representing the item. Use 🛒 if no suitable emoji exists. Valid intents are add, remove, search." }] },
-        contents: [{ role: "user", parts: [{ text: String(request.body.command ?? "") }] }],
+        contents: [{ role: "user", parts: [{ text: `Parse this shopping command as JSON only with intent, item, quantity, category, and emoji. Quantity must be a positive integer, using 1 if absent. Remove filler words such as hello, please, I need, add, buy, and get from item. Return one specific emoji that visually represents the item. Never use 🛒 for a recognizable product; use it only for an unknown item. Examples: milk -> 🥛, spinach -> 🥬, mango -> 🥭, T-shirt -> 👕. Command: ${String(request.body.command ?? "")}` }] }],
         generationConfig: { temperature: 0, responseMimeType: "application/json" },
       }),
     });
@@ -81,7 +81,22 @@ app.post("/api/parse-command", async (request, response) => {
     const payload = await completion.json();
     const result = JSON.parse(payload.candidates[0].content.parts[0].text);
     const item = cleanItemName(result.item || result.query);
-    return response.json({ ...result, item, name: item, query: result.query || item, emoji: validateEmoji(result.emoji) });
+    const quantity = Number.isInteger(Number(result.quantity)) && Number(result.quantity) > 0 ? Number(result.quantity) : 1;
+    let emoji = validateEmoji(result.emoji);
+    if (emoji === "🛒" && item) {
+      try {
+        const emojiCompletion = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: `Return exactly one emoji character that directly represents this item: ${item}. Do not return text, JSON, or a shopping cart.` }] }], generationConfig: { temperature: 0 } }),
+        });
+        if (emojiCompletion.ok) {
+          const emojiPayload = await emojiCompletion.json();
+          emoji = validateEmoji(emojiPayload.candidates?.[0]?.content?.parts?.[0]?.text?.trim());
+        }
+      } catch {}
+    }
+    return response.json({ ...result, item, name: item, query: result.query || item, quantity, emoji });
   } catch {
     return response.status(502).json({ message: "Could not parse the shopping command." });
   }
