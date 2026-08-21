@@ -60,21 +60,35 @@ function App() {
   const [items, setItems] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [products, setProducts] = useState([]);
+  const [monthlyBudget, setMonthlyBudget] = useState(0);
+  const [budgetPlan, setBudgetPlan] = useState({ monthlyBudget: 0, plannedSpend: 0, remaining: 0, buyNow: [], defer: [] });
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [voiceMessage, setVoiceMessage] = useState("Ready for your shopping command.");
 
   useEffect(() => {
-    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`)]).then(async ([itemResponse, suggestionResponse]) => {
-      if (!itemResponse.ok || !suggestionResponse.ok) throw new Error("API unavailable");
+    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
+      if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok) throw new Error("API unavailable");
       setItems(await itemResponse.json());
       setSuggestions(await suggestionResponse.json());
+      const budget = await budgetResponse.json();
+      setMonthlyBudget(budget.monthly);
+      setBudgetPlan(await planResponse.json());
     }).catch(() => setVoiceMessage("Start the backend server to save your shopping list.")).finally(() => setIsLoading(false));
   }, []);
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
   const refreshSuggestions = async () => { const response = await fetch(`${API_URL}/suggestions`); if (response.ok) setSuggestions(await response.json()); };
+  const refreshBudgetPlan = async () => { const response = await fetch(`${API_URL}/budget/plan`); if (response.ok) setBudgetPlan(await response.json()); };
+
+  async function updateBudget(value) {
+    const monthly = Math.max(0, Number(value) || 0);
+    const response = await fetch(`${API_URL}/budget`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monthly }) });
+    if (!response.ok) throw new Error("Could not update budget");
+    setMonthlyBudget(monthly);
+    await refreshBudgetPlan();
+  }
 
   async function addItem(name, quantity = 1) {
     if (!name?.trim()) return;
@@ -85,6 +99,7 @@ function App() {
     setProducts([]);
     setCommand("");
     await refreshSuggestions();
+    await refreshBudgetPlan();
     setVoiceMessage(`Added ${item.quantity > 1 ? `${item.quantity} ` : ""}${item.name} to your list.`);
   }
 
@@ -94,6 +109,7 @@ function App() {
     const response = await fetch(`${API_URL}/items/${item.id}`, { method: "DELETE" });
     if (!response.ok) throw new Error("Could not remove item");
     setItems((current) => current.filter((entry) => entry.id !== item.id));
+    await refreshBudgetPlan();
     setVoiceMessage(`Removed ${item.name} from your list.`);
   }
 
@@ -102,6 +118,7 @@ function App() {
     if (!response.ok) throw new Error("Could not update item");
     const updated = await response.json();
     setItems((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    await refreshBudgetPlan();
   }
 
   async function searchProducts(filters) {
@@ -150,8 +167,10 @@ function App() {
       <header className="hero"><p className="eyebrow">VOICE SHOPPING ASSISTANT</p><h1>Voxie</h1><p className="intro">Say “add 2 bottles of water”, “remove milk” or “find toothpaste under $5”.</p><div className="language-list">{languages.map((language) => <button key={language} className={selectedLanguage === language ? "language active" : "language"} onClick={() => setSelectedLanguage(language)}>{language}</button>)}</div></header>
       <section className="summary-card"><p>{totalItems} {totalItems === 1 ? "item" : "items"} to buy</p><strong>~$0.00</strong><span> estimated</span></section>
       <p className="notice">{isLoading ? "Processing your request..." : `✦ ${voiceMessage}`}</p>
+      <section className="budget-card"><div><p className="section-kicker">MONTHLY PLAN</p><h2>Set your grocery budget</h2><p className="budget-copy">Voxie will protect essentials first and defer lower-priority items when needed.</p></div><label className="budget-input"><span>$</span><input type="number" min="0" step="1" value={monthlyBudget || ""} onChange={(event) => updateBudget(event.target.value).catch(() => setVoiceMessage("Could not update your budget."))} placeholder="0" aria-label="Monthly grocery budget" /></label><div className="budget-stats"><span><strong>${budgetPlan.plannedSpend.toFixed(2)}</strong> planned</span><span><strong>${budgetPlan.remaining.toFixed(2)}</strong> remaining</span></div></section>
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
-      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const visual = productIllustration(item.name, item.category); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className={`item-art ${visual.tone}`}>{visual.emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p></div><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
+      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const visual = productIllustration(item.name, item.category); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className={`item-art ${visual.tone}`}>{visual.emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
+      <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{productIllustration(item.name, item.category).emoji}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>${item.estimatedCost.toFixed(2)}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{productIllustration(item.name, item.category).emoji}</span><div><strong>{item.name}</strong><small>Lower priority or over budget</small></div><b>${item.estimatedCost.toFixed(2)}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => { const visual = productIllustration(product.name, product.category); return <article className="product-card" key={product.id}><div className={`product-art ${visual.tone}`}>{visual.emoji}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>; })}</div></section>}
     </section>
