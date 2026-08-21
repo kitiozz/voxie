@@ -1328,6 +1328,170 @@ h2 {
   display: none;
 }
 
+/* Interaction system */
+.app {
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.page-content {
+  padding-top: 28px;
+}
+
+.hero,
+.budget-card,
+.planner-section,
+.summary-card,
+.command-row,
+.list-item,
+.product-card {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.hero:hover,
+.budget-card:hover,
+.planner-section:hover {
+  border-color: #c5e8da;
+  box-shadow: 0 18px 36px rgba(87, 131, 112, 0.12);
+}
+
+.language,
+.suggestion,
+.add-button,
+.mic-button,
+.product-card button,
+.remove-button,
+.quantity-controls button,
+.check-button {
+  transition: transform 160ms ease, filter 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.language:active,
+.suggestion:active,
+.add-button:active,
+.mic-button:active,
+.product-card button:active,
+.remove-button:active,
+.quantity-controls button:active,
+.check-button:active {
+  transform: scale(0.96);
+}
+
+.command-row:focus-within {
+  border-color: #9edcc8;
+  box-shadow: 0 0 0 4px rgba(44, 174, 139, 0.1), 0 12px 28px rgba(85, 132, 112, 0.12);
+}
+
+.command-row input {
+  caret-color: #2cae8b;
+}
+
+.add-button:hover {
+  filter: brightness(1.04);
+  box-shadow: 0 12px 22px rgba(60, 175, 139, 0.32);
+}
+
+.list-item {
+  animation: item-enter 360ms ease both;
+}
+
+.list-item:nth-child(2) { animation-delay: 35ms; }
+.list-item:nth-child(3) { animation-delay: 70ms; }
+.list-item:nth-child(4) { animation-delay: 105ms; }
+.list-item:nth-child(5) { animation-delay: 140ms; }
+
+.item-copy strong {
+  letter-spacing: 0.1px;
+}
+
+.item-actions select {
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.item-actions select:hover,
+.price-editor > div:hover {
+  border-color: #a6dfcd;
+}
+
+.price-editor input::placeholder {
+  color: #a4b5ad;
+}
+
+.planner-heading > span {
+  white-space: nowrap;
+}
+
+.mic-button {
+  position: relative;
+}
+
+.mic-button::after {
+  position: absolute;
+  inset: -7px;
+  border: 1px solid rgba(44, 174, 139, 0.24);
+  border-radius: 50%;
+  content: "";
+  animation: mic-ring 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+.recording-mic {
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.recording-mic:hover {
+  transform: scale(1.06);
+  filter: brightness(1.04);
+}
+
+@keyframes item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mic-ring {
+  0% { opacity: 0.8; transform: scale(0.96); }
+  70%, 100% { opacity: 0; transform: scale(1.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .page-content {
+    padding-top: 16px;
+  }
+
+  .hero {
+    padding: 22px 18px;
+  }
+
+  .summary-card,
+  .budget-card,
+  .planner-section {
+    border-radius: 18px;
+  }
+
+  .mic-bar {
+    min-height: 104px;
+  }
+}
+
 .planner-empty {
   margin: 0;
   color: #8a9d95;
