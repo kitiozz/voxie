@@ -1,0 +1,119 @@
+{
+  "budget": { "monthly": 0 },
+  "items": [
+    {
+      "id": "1787233407727",
+      "name": "hello",
+      "quantity": 1,
+      "category": "Other",
+      "completed": false
+    }
+  ],
+  "history": [
+    "hello",
+    "hello add milk",
+    "milk"
+  ],
+  "products": [
+    {
+      "id": "milk-1",
+      "name": "Whole Milk",
+      "brand": "Meadow",
+      "category": "Dairy",
+      "price": 3.49,
+      "organic": false,
+      "size": "1 litre",
+      "substitute": "Almond Milk"
+    },
+    {
+      "id": "milk-2",
+      "name": "Organic Almond Milk",
+      "brand": "Almond Breeze",
+      "category": "Beverages",
+      "price": 4.79,
+      "organic": true,
+      "size": "1 litre",
+      "substitute": "Oat Milk"
+    },
+    {
+      "id": "apple-1",
+      "name": "Organic Gala Apples",
+      "brand": "Fresh Field",
+      "category": "Produce",
+      "price": 4.25,
+      "organic": true,
+      "size": "1 kg",
+      "substitute": "Organic Fuji Apples"
+    },
+    {
+      "id": "apple-2",
+      "name": "Red Apples",
+      "brand": "Fresh Field",
+      "category": "Produce",
+      "price": 2.99,
+      "organic": false,
+      "size": "1 kg",
+      "substitute": "Pears"
+    },
+    {
+      "id": "water-1",
+      "name": "Spring Water",
+      "brand": "Clear Drop",
+      "category": "Beverages",
+      "price": 3.99,
+      "organic": false,
+      "size": "6 bottles",
+      "substitute": "Sparkling Water"
+    },
+    {
+      "id": "toothpaste-1",
+      "name": "Fresh Mint Toothpaste",
+      "brand": "Smile",
+      "category": "Personal Care",
+      "price": 3.75,
+      "organic": false,
+      "size": "100 ml",
+      "substitute": "Herbal Toothpaste"
+    },
+    {
+      "id": "toothpaste-2",
+      "name": "Herbal Toothpaste",
+      "brand": "Nature Care",
+      "category": "Personal Care",
+      "price": 4.5,
+      "organic": true,
+      "size": "100 ml",
+      "substitute": "Fresh Mint Toothpaste"
+    },
+    {
+      "id": "banana-1",
+      "name": "Bananas",
+      "brand": "Fresh Field",
+      "category": "Produce",
+      "price": 1.99,
+      "organic": false,
+      "size": "1 bunch",
+      "substitute": "Plantains"
+    },
+    {
+      "id": "bread-1",
+      "name": "Whole Wheat Bread",
+      "brand": "Daily Bake",
+      "category": "Bakery",
+      "price": 2.89,
+      "organic": false,
+      "size": "1 loaf",
+      "substitute": "Multigrain Bread"
+    },
+    {
+      "id": "coffee-1",
+      "name": "Ground Coffee",
+      "brand": "Morning Roast",
+      "category": "Beverages",
+      "price": 6.99,
+      "organic": false,
+      "size": "250 g",
+      "substitute": "Instant Coffee"
+    }
+  ]
+}
