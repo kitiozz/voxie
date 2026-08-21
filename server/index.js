@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -6,9 +8,23 @@ const path = require("path");
 const app = express();
 const port = process.env.PORT || 4000;
 const storePath = path.join(__dirname, "data", "store.json");
+const openAiApiKey = process.env.OPENAI_API_KEY;
 
 app.use(cors());
 app.use(express.json());
+
+function validateEmoji(value) {
+  const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(String(value ?? ""))];
+  return segments.length === 1 && /\p{Extended_Pictographic}/u.test(segments[0]) ? segments[0] : "🛒";
+}
+
+function cleanItemName(value) {
+  return String(value ?? "")
+    .replace(/^(hello|hi|hey|please)\b\s*/i, "")
+    .replace(/^(add|buy|get|put|need|i need|i want)\b\s*/i, "")
+    .replace(/\s+(to my list|on my list)$/i, "")
+    .trim();
+}
 
 function readStore() {
   const store = JSON.parse(fs.readFileSync(storePath, "utf8"));
@@ -46,12 +62,40 @@ app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });
 });
 
+app.post("/api/parse-command", async (request, response) => {
+  if (!openAiApiKey) return response.status(503).json({ message: "OPENAI_API_KEY is not configured." });
+
+  try {
+    const completion = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiApiKey}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "Extract a grocery command as JSON only. Return intent, item, quantity, category, and emoji. Clean filler words such as hello, please, I need, add, buy, and get from item. Emoji must be exactly one emoji character representing the item. Use 🛒 if no suitable emoji exists. Valid intents are add, remove, search." },
+          { role: "user", content: String(request.body.command ?? "") },
+        ],
+      }),
+    });
+
+    if (!completion.ok) return response.status(502).json({ message: "OpenAI request failed." });
+    const payload = await completion.json();
+    const result = JSON.parse(payload.choices[0].message.content);
+    const item = cleanItemName(result.item || result.query);
+    return response.json({ ...result, item, name: item, query: result.query || item, emoji: validateEmoji(result.emoji) });
+  } catch {
+    return response.status(502).json({ message: "Could not parse the shopping command." });
+  }
+});
+
 app.get("/api/items", (_request, response) => {
   response.json(readStore().items);
 });
 
 app.post("/api/items", (request, response) => {
-  const { name, quantity = 1, category, priority = "medium" } = request.body;
+  const { name, quantity = 1, category, emoji, priority = "medium" } = request.body;
   if (!name || !String(name).trim()) {
     return response.status(400).json({ message: "An item name is required." });
   }
@@ -63,6 +107,7 @@ app.post("/api/items", (request, response) => {
     name: String(name).trim(),
     quantity: Math.max(1, Number(quantity) || 1),
     category: category || matchedProduct?.category || categoryFor(name),
+    emoji: validateEmoji(emoji),
     unitPrice: matchedProduct?.price || 0,
     productId: matchedProduct?.id || null,
     priority: ["high", "medium", "low"].includes(priority) ? priority : "medium",

@@ -6,52 +6,19 @@ const languages = ["English", "Español", "Français", "हिंदी", "Deuts
 const languageCodes = { English: "en-US", Español: "es-ES", Français: "fr-FR", हिंदी: "hi-IN", Deutsch: "de-DE" };
 const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
-function productIllustration(name, category = "") {
-  const value = name.toLowerCase();
-  if (/\b(milk|cheese|yogurt|butter)\b/.test(value)) return { emoji: "🥛", tone: "mint" };
-  if (/\bmango(?:es)?\b/.test(value)) return { emoji: "🥭", tone: "peach" };
-  if (/\bapple(?:s)?\b/.test(value)) return { emoji: "🍎", tone: "peach" };
-  if (/\borange(?:s)?\b/.test(value)) return { emoji: "🍊", tone: "peach" };
-  if (/\bbanana(?:s)?\b/.test(value)) return { emoji: "🍌", tone: "butter" };
-  if (/\bwater\b/.test(value)) return { emoji: "💧", tone: "sky" };
-  if (/\bjuice\b/.test(value)) return { emoji: "🧃", tone: "sky" };
-  if (/\bcoffee\b/.test(value)) return { emoji: "☕", tone: "butter" };
-  if (/\btea\b/.test(value)) return { emoji: "🍵", tone: "mint" };
-  if (/\bsoda\b/.test(value)) return { emoji: "🥤", tone: "sky" };
-  if (/\bbread|bakery\b/.test(value)) return { emoji: "🍞", tone: "butter" };
-  if (/\btoothpaste\b/.test(value)) return { emoji: "🪥", tone: "lilac" };
-  if (/\bsoap\b/.test(value)) return { emoji: "🧼", tone: "lilac" };
-  if (/\bshampoo\b/.test(value)) return { emoji: "🧴", tone: "lilac" };
-  if (/\beggs?\b/.test(value)) return { emoji: "🥚", tone: "butter" };
-  if (/\bchips?\b/.test(value)) return { emoji: "🍟", tone: "pink" };
-  if (/\bcookie|snack\b/.test(value)) return { emoji: "🍪", tone: "pink" };
-  if (/\bchocolate\b/.test(value)) return { emoji: "🍫", tone: "pink" };
-  if (/\bpopcorn\b/.test(value)) return { emoji: "🍿", tone: "butter" };
-  if (category === "Produce") return { emoji: "🥬", tone: "mint" };
-  if (category === "Dairy") return { emoji: "🥛", tone: "mint" };
-  if (category === "Beverages") return { emoji: "🥤", tone: "sky" };
-  if (category === "Bakery") return { emoji: "🍞", tone: "butter" };
-  if (category === "Personal Care") return { emoji: "🧴", tone: "lilac" };
-  if (category === "Snacks") return { emoji: "🍪", tone: "pink" };
-  return { emoji: "🛒", tone: "mint" };
+function validateEmoji(value) {
+  const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(String(value ?? ""))];
+  return segments.length === 1 && /\p{Extended_Pictographic}/u.test(segments[0]) ? segments[0] : "🛒";
 }
 
 function MicrophoneIcon() {
   return <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><path d="M12 17v4" /><path d="M8 21h8" /></svg>;
 }
 
-function parseCommand(raw) {
-  const text = raw.trim().toLowerCase();
-  const priceMatch = text.match(/(?:under|below|less than)\s*\$?\s*(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)/);
-  const price = priceMatch ? Number(priceMatch[1]) || numberWords[priceMatch[1]] : undefined;
-  if (/^(find|search|show)/.test(text)) {
-    return { intent: "search", query: text.replace(/^(find|search|show)\s+(for\s+)?/, "").replace(/\borganic\b/g, "").replace(/(?:under|below|less than)\s*\$?\s*(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s+dollars?)?/g, "").trim(), organic: /organic/.test(text), maxPrice: price };
-  }
-  if (/^(remove|delete|take off)/.test(text)) return { intent: "remove", name: text.replace(/^(remove|delete|take off)\s+/, "").replace(/\s+from (my )?list$/, "").trim() };
-  const match = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/);
-  const quantity = match ? Number(match[1]) || numberWords[match[1]] : 1;
-  const name = text.replace(/^(add|buy|i want|i need|need|get|put)\s+/, "").replace(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/g, "").replace(/\b(bottles?|packs?|pieces?|items?)\s+of\s+/g, "").replace(/\s+to (my )?list$/, "").trim();
-  return { intent: "add", name: name || raw.trim(), quantity };
+async function parseCommand(raw) {
+  const response = await fetch(`${API_URL}/parse-command`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: raw }) });
+  if (!response.ok) throw new Error("Could not parse command");
+  return response.json();
 }
 
 function App() {
@@ -95,9 +62,9 @@ function App() {
     await refreshBudgetPlan();
   }
 
-  async function addItem(name, quantity = 1) {
+  async function addItem(name, quantity = 1, category, emoji) {
     if (!name?.trim()) return;
-    const response = await fetch(`${API_URL}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, quantity }) });
+    const response = await fetch(`${API_URL}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, quantity, category, emoji: validateEmoji(emoji) }) });
     if (!response.ok) throw new Error("Could not add item");
     const item = await response.json();
     setItems((current) => [...current, item]);
@@ -144,8 +111,8 @@ function App() {
     try {
       const action = parseCommand(value);
       if (action.intent === "search") await searchProducts(action);
-      if (action.intent === "remove") await removeItem(action.name);
-      if (action.intent === "add") await addItem(action.name, action.quantity);
+      if (action.intent === "remove") await removeItem(action.name || action.item);
+      if (action.intent === "add") await addItem(action.item, action.quantity, action.category, action.emoji);
     } catch { setVoiceMessage("Something went wrong. Please make sure the backend server is running."); }
     finally { setIsLoading(false); }
   }
@@ -184,10 +151,10 @@ function App() {
       <p className="notice">{isLoading ? "Processing your request..." : `✦ ${voiceMessage}`}</p>
       <section className="budget-card"><div><p className="section-kicker">MONTHLY PLAN</p><h2>Set your grocery budget</h2><p className="budget-copy">Voxie will protect essentials first and defer lower-priority items when needed.</p></div><label className="budget-input"><span>$</span><input type="number" min="0" step="1" value={monthlyBudget || ""} onChange={(event) => updateBudget(event.target.value).catch(() => setVoiceMessage("Could not update your budget."))} placeholder="0" aria-label="Monthly grocery budget" /></label><div className="budget-stats"><span><strong>${budgetPlan.plannedSpend.toFixed(2)}</strong> planned</span><span><strong>${budgetPlan.remaining.toFixed(2)}</strong> remaining</span></div></section>
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
-      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const visual = productIllustration(item.name, item.category); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className={`item-art ${visual.tone}`}>{visual.emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p><label className="price-editor"><span>Unit price</span><div><b>$</b><input type="number" min="0" step="0.01" value={item.unitPrice ?? ""} placeholder="Price" aria-label={`Set price for ${item.name}`} onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))} onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))} /></div></label></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
-      <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{productIllustration(item.name, item.category).emoji}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{productIllustration(item.name, item.category).emoji}</span><div><strong>{item.name}</strong><small>{item.estimatedCost == null ? "Add a price to include it" : "Lower priority or over budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
+      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const emoji = validateEmoji(item.emoji); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className="item-art mint">{emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p><label className="price-editor"><span>Unit price</span><div><b>$</b><input type="number" min="0" step="0.01" value={item.unitPrice ?? ""} placeholder="Price" aria-label={`Set price for ${item.name}`} onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))} onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))} /></div></label></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
+      <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.estimatedCost == null ? "Add a price to include it" : "Lower priority or over budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
-      {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => { const visual = productIllustration(product.name, product.category); return <article className="product-card" key={product.id}><div className={`product-art ${visual.tone}`}>{visual.emoji}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>; })}</div></section>}
+      {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}><div className="product-art mint">{validateEmoji(product.emoji)}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>)}</div></section>}
     </section>
     <footer className="mic-bar"><button className="mic-button" aria-label="Start voice command" onClick={startListening}><MicrophoneIcon /></button><p>Tap to speak</p></footer>
     {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={stopListening} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={stopListening} aria-label="Stop listening"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
