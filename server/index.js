@@ -34,8 +34,67 @@ function readStore() {
   store.history ??= [];
   store.products ??= [];
   store.budget ??= { monthly: 0 };
+  store.healthProfile ??= { goal: "balanced", notes: "" };
   store.items = store.items.map((item) => item.unitPrice === 0 && !item.productId ? { ...item, unitPrice: null } : item);
   return store;
+}
+
+const wellnessFallbacks = {
+  balanced: {
+    title: "Balanced everyday basket",
+    guidance: "Build meals around vegetables or fruit, a protein source, whole grains, and water.",
+    groceries: [
+      { name: "Leafy greens", reason: "Adds vegetables and fiber to meals." },
+      { name: "Beans or lentils", reason: "Budget-friendly plant protein." },
+      { name: "Whole grains", reason: "A practical source of energy and fiber." },
+      { name: "Fruit", reason: "Convenient produce for snacks and meals." },
+    ],
+  },
+  weight_loss: {
+    title: "Weight-aware grocery basket",
+    guidance: "Prioritize filling, minimally processed foods and plan portions; weight change is individual and not guaranteed by any single food.",
+    groceries: [
+      { name: "Leafy greens", reason: "Adds volume and variety to meals." },
+      { name: "Eggs or tofu", reason: "Flexible protein for breakfast or meals." },
+      { name: "Berries", reason: "Fruit option for snacks and yogurt bowls." },
+      { name: "Plain yogurt", reason: "Useful base for a filling snack." },
+    ],
+  },
+  blood_sugar: {
+    title: "Blood-sugar-aware basket",
+    guidance: "Pair carbohydrate foods with protein or fiber and choose unsweetened drinks. If you have diabetes, confirm personal targets with your care team.",
+    groceries: [
+      { name: "Non-starchy vegetables", reason: "Build meals around vegetables." },
+      { name: "Beans or lentils", reason: "Fiber-rich option for balanced meals." },
+      { name: "Nuts", reason: "Convenient unsweetened snack option." },
+      { name: "Plain yogurt", reason: "Choose unsweetened and check the label." },
+    ],
+  },
+  iron: {
+    title: "Iron-focused basket",
+    guidance: "Include iron-containing foods and pair plant sources with vitamin-C-rich produce. Confirm suspected deficiency with a clinician rather than self-treating with supplements.",
+    groceries: [
+      { name: "Lentils", reason: "Plant source of iron and protein." },
+      { name: "Spinach", reason: "Leafy green that can add iron to meals." },
+      { name: "Bell peppers", reason: "Vitamin-C-rich pairing for plant foods." },
+      { name: "Iron-fortified cereal", reason: "Check the nutrition label for iron." },
+    ],
+  },
+  protein: {
+    title: "Higher-protein basket",
+    guidance: "Spread protein across meals and choose options that fit your health needs, budget, and dietary pattern.",
+    groceries: [
+      { name: "Eggs", reason: "Versatile protein for several meals." },
+      { name: "Greek yogurt", reason: "Convenient protein-rich breakfast or snack." },
+      { name: "Tofu", reason: "Plant-based protein option." },
+      { name: "Beans", reason: "Affordable protein and fiber." },
+    ],
+  },
+};
+
+function wellnessPlan(profile) {
+  const fallback = wellnessFallbacks[profile.goal] || wellnessFallbacks.balanced;
+  return { ...fallback, goal: profile.goal, notes: profile.notes || "", safety: "This is general grocery guidance, not medical advice. Confirm changes with a qualified clinician if you have a diagnosis, take medication, are pregnant, or have allergies." };
 }
 
 function writeStore(store) {
@@ -62,6 +121,26 @@ function categoryFor(name) {
 
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });
+});
+
+app.get("/api/health-profile", (_request, response) => {
+  response.json(readStore().healthProfile);
+});
+
+app.put("/api/health-profile", (request, response) => {
+  const store = readStore();
+  const allowedGoals = Object.keys(wellnessFallbacks);
+  store.healthProfile = {
+    goal: allowedGoals.includes(request.body.goal) ? request.body.goal : "balanced",
+    notes: String(request.body.notes || "").trim().slice(0, 500),
+  };
+  writeStore(store);
+  response.json({ profile: store.healthProfile, plan: wellnessPlan(store.healthProfile) });
+});
+
+app.post("/api/wellness-plan", (request, response) => {
+  const profile = { goal: String(request.body.goal || "balanced"), notes: String(request.body.notes || "").trim().slice(0, 500) };
+  response.json(wellnessPlan(profile));
 });
 
 app.post("/api/parse-command", async (request, response) => {

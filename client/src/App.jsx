@@ -29,6 +29,8 @@ function App() {
   const [products, setProducts] = useState([]);
   const [monthlyBudget, setMonthlyBudget] = useState(0);
   const [budgetPlan, setBudgetPlan] = useState({ monthlyBudget: 0, plannedSpend: 0, remaining: 0, buyNow: [], defer: [] });
+  const [healthProfile, setHealthProfile] = useState({ goal: "balanced", notes: "" });
+  const [wellnessPlan, setWellnessPlan] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -36,13 +38,17 @@ function App() {
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
-      if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok) throw new Error("API unavailable");
+    Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`), fetch(`${API_URL}/health-profile`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse, healthResponse]) => {
+      if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok || !healthResponse.ok) throw new Error("API unavailable");
       setItems(await itemResponse.json());
       setSuggestions(await suggestionResponse.json());
       const budget = await budgetResponse.json();
       setMonthlyBudget(budget.monthly);
       setBudgetPlan(await planResponse.json());
+      const profile = await healthResponse.json();
+      setHealthProfile(profile);
+      const wellnessResponse = await fetch(`${API_URL}/wellness-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) });
+      if (wellnessResponse.ok) setWellnessPlan(await wellnessResponse.json());
     }).catch(() => setVoiceMessage("Start the backend server to save your shopping list.")).finally(() => setIsLoading(false));
   }, []);
 
@@ -53,6 +59,16 @@ function App() {
   const missingPriceCount = items.filter((item) => item.unitPrice == null).length;
   const refreshSuggestions = async () => { const response = await fetch(`${API_URL}/suggestions`); if (response.ok) setSuggestions(await response.json()); };
   const refreshBudgetPlan = async () => { const response = await fetch(`${API_URL}/budget/plan`); if (response.ok) setBudgetPlan(await response.json()); };
+
+  async function updateHealthProfile(changes) {
+    const nextProfile = { ...healthProfile, ...changes };
+    setHealthProfile(nextProfile);
+    const response = await fetch(`${API_URL}/health-profile`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nextProfile) });
+    if (!response.ok) throw new Error("Could not save health focus");
+    const result = await response.json();
+    setHealthProfile(result.profile);
+    setWellnessPlan(result.plan);
+  }
 
   async function updateBudget(value) {
     const monthly = Math.max(0, Number(value) || 0);
@@ -153,6 +169,7 @@ function App() {
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
       <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const emoji = validateEmoji(item.emoji); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className="item-art mint">{emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p><label className="price-editor"><span>Unit price</span><div><b>$</b><input type="number" min="0" step="0.01" value={item.unitPrice ?? ""} placeholder="Price" aria-label={`Set price for ${item.name}`} onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))} onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))} /></div></label></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
       <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.estimatedCost == null ? "Add a price to include it" : "Lower priority or over budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
+      <section className="wellness-card"><div className="wellness-heading"><div><p className="section-kicker">WELLNESS MODE</p><h2>Shop for your health focus</h2><p className="budget-copy">Choose a goal and Voxie will shape a grocery starting point around it.</p></div><span className="wellness-mark">Careful choices</span></div><div className="health-goals">{[["balanced", "Balanced"], ["weight_loss", "Weight-aware"], ["blood_sugar", "Blood-sugar aware"], ["iron", "Iron focus"], ["protein", "Higher protein"]].map(([goal, label]) => <button key={goal} className={healthProfile.goal === goal ? "health-goal active" : "health-goal"} onClick={() => updateHealthProfile({ goal }).catch(() => setVoiceMessage("Could not save your health focus."))}>{label}</button>)}</div><label className="health-notes"><span>Anything else to consider?</span><textarea value={healthProfile.notes} onChange={(event) => setHealthProfile((current) => ({ ...current, notes: event.target.value }))} onBlur={() => updateHealthProfile({ notes: healthProfile.notes }).catch(() => setVoiceMessage("Could not save your notes."))} placeholder="Example: vegetarian, food allergy, family preferences" maxLength="500" /></label>{wellnessPlan && <div className="wellness-result"><div><h3>{wellnessPlan.title}</h3><p>{wellnessPlan.guidance}</p></div><div className="wellness-groceries">{wellnessPlan.groceries.map((grocery) => <button key={grocery.name} className="wellness-item" onClick={() => executeCommand(`add ${grocery.name}`)}><strong>{grocery.name}</strong><small>{grocery.reason}</small><span>+ Add</span></button>)}</div><p className="health-safety">{wellnessPlan.safety}</p></div>}</section>
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}><div className="product-art mint">{validateEmoji(product.emoji)}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>)}</div></section>}
     </section>
