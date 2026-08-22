@@ -71,10 +71,54 @@ function playAudioChime(type) {
   }
 }
 
+function localParseCommand(raw) {
+  const text = String(raw || "").trim();
+  const lower = text.toLowerCase();
+
+  if (/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b/i.test(lower)) {
+    const query = lower.replace(/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b\s*/i, "").trim();
+    return { intent: "search", query, organic: lower.includes("organic") };
+  }
+
+  if (/^(remove|delete|drop|take off|take out|scratch|clear|eliminar|quitar|supprimer|entfernen|हटाएं)\b/i.test(lower)) {
+    const name = lower.replace(/^(remove|delete|drop|take off|take out|scratch|clear|eliminar|quitar|supprimer|entfernen|हटाएं)\b\s*/i, "").replace(/from my list|off my list|please/gi, "").trim();
+    return { intent: "remove", name: name || text, item: name || text };
+  }
+
+  let qty = 1;
+  const numMatch = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|un|une|dos|deux|tres|trois|ein|eine|zwei|एक|दो|तीन)\b/i);
+  if (numMatch) {
+    const found = numMatch[1].toLowerCase();
+    qty = numberWords[found] || parseInt(found, 10) || 1;
+  }
+
+  const cleanName = text
+    .replace(/^(add|buy|get|put|need|i need|i want|pick up|grab|agregar|añadir|ajouter|hinzufügen|जोड़ें|खरीदें)\b\s*/i, "")
+    .replace(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|un|une|dos|deux|tres|trois|ein|eine|zwei|एक|दो|तीन)\s+(?:bottles? of|cans? of|bags? of|boxes? of|packs? of|kg of|g of|litres? of|bunches? of|loaves of|loaf of)?/i, "")
+    .replace(/\s+(to my list|on my list|to the cart|please)$/i, "")
+    .trim();
+
+  const finalName = cleanName || text;
+  let category = "Produce";
+  let emoji = "🍎";
+  if (/milk|cheese|yogurt|butter/i.test(finalName)) { category = "Dairy"; emoji = "🥛"; }
+  else if (/water|juice|coffee|tea|soda/i.test(finalName)) { category = "Beverages"; emoji = "💧"; }
+  else if (/bread|cereal|grain|rice|pasta/i.test(finalName)) { category = "Bakery"; emoji = "🍞"; }
+  else if (/toothpaste|soap|shampoo/i.test(finalName)) { category = "Personal Care"; emoji = "🪥"; }
+  else if (/egg/i.test(finalName)) { category = "Dairy"; emoji = "🥚"; }
+  else if (/banana/i.test(finalName)) { category = "Produce"; emoji = "🍌"; }
+
+  return { intent: "add", item: finalName, quantity: qty, category, emoji, priority: "medium" };
+}
+
 async function parseCommand(raw) {
-  const response = await fetch(`${API_URL}/parse-command`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: raw }) });
-  if (!response.ok) throw new Error("Could not parse command");
-  return response.json();
+  try {
+    const response = await fetch(`${API_URL}/parse-command`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: raw }) });
+    if (!response.ok) throw new Error("API failed");
+    return await response.json();
+  } catch {
+    return localParseCommand(raw);
+  }
 }
 
 function App() {
@@ -178,34 +222,58 @@ function App() {
 
   async function addItem(name, quantity = 1, category, emoji, priority = "medium", unitPrice) {
     if (!name?.trim()) return;
-    const response = await fetch(`${API_URL}/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, quantity, category, emoji: validateEmoji(emoji), priority, unitPrice })
-    });
-    if (!response.ok) throw new Error("Could not add item");
-    const item = await response.json();
-    setItems((current) => [...current, item]);
+    const cleanName = name.trim();
+    const qty = Math.max(1, Number(quantity) || 1);
+    const resolvedEmoji = validateEmoji(emoji);
+
+    try {
+      const response = await fetch(`${API_URL}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleanName, quantity: qty, category, emoji: resolvedEmoji, priority, unitPrice })
+      });
+      if (response.ok) {
+        const item = await response.json();
+        setItems((current) => [...current, item]);
+        setHighlightedItemId(item.id);
+      } else {
+        throw new Error("API failed");
+      }
+    } catch {
+      // Robust offline / client fallback
+      const fallbackItem = {
+        id: Date.now().toString(),
+        name: cleanName,
+        quantity: qty,
+        category: category || "Produce",
+        emoji: resolvedEmoji,
+        unitPrice: unitPrice || null,
+        priority: priority || "medium",
+        completed: false
+      };
+      setItems((current) => [...current, fallbackItem]);
+      setHighlightedItemId(fallbackItem.id);
+    }
+
     setProducts([]);
     setCommand("");
-    await refreshSuggestions();
-    await refreshBudgetPlan();
+    refreshSuggestions().catch(() => {});
+    refreshBudgetPlan().catch(() => {});
 
     // Haptic & Visual Feedback
     if (hapticsEnabled) triggerHaptic([40, 50, 45]);
     if (soundEnabled) playAudioChime("add");
-    setHighlightedItemId(item.id);
     setTimeout(() => setHighlightedItemId(null), 3800);
 
-    const message = `Added ${item.quantity > 1 ? `${item.quantity}x ` : ""}${item.name} to your list.`;
+    const message = `Added ${qty > 1 ? `${qty}x ` : ""}${cleanName} to your list.`;
     setVoiceMessage(message);
     showVisualFeedback({
       type: "add",
       title: "Item Added",
-      detail: `${item.quantity > 1 ? `${item.quantity}x ` : ""}${item.name}`,
-      emoji: validateEmoji(item.emoji),
-      category: item.category,
-      priority: item.priority || "medium"
+      detail: `${qty > 1 ? `${qty}x ` : ""}${cleanName}`,
+      emoji: resolvedEmoji,
+      category: category || "Grocery",
+      priority: priority || "medium"
     });
   }
 
@@ -228,10 +296,14 @@ function App() {
       return;
     }
 
-    const response = await fetch(`${API_URL}/items/${item.id}`, { method: "DELETE" });
-    if (!response.ok) throw new Error("Could not remove item");
+    try {
+      await fetch(`${API_URL}/items/${item.id}`, { method: "DELETE" });
+    } catch {
+      // offline fallback handled by state below
+    }
+
     setItems((current) => current.filter((entry) => entry.id !== item.id));
-    await refreshBudgetPlan();
+    refreshBudgetPlan().catch(() => {});
 
     // Haptic & Visual Feedback
     if (hapticsEnabled) triggerHaptic([60, 40]);
@@ -294,13 +366,30 @@ function App() {
   function startListening() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setVoiceMessage("Speech recognition is not supported in this browser. Please use Chrome, Edge, or type your command below.");
+      setVoiceMessage("Speech recognition is not supported in this browser. Please use Chrome or Edge, or type commands below.");
+      showVisualFeedback({
+        type: "error",
+        title: "Browser Unsupported",
+        detail: "Speech recognition requires Google Chrome, Microsoft Edge, or Safari.",
+        emoji: "🎙️"
+      });
       return;
     }
+
     try {
-      recognitionRef.current?.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
     } catch {
       // ignore
+    }
+
+    // Try requesting mic permission via getUserMedia to unlock permissions if in iframe
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
+        // user may grant or deny in popup
+      });
     }
 
     if (hapticsEnabled) triggerHaptic([30]);
@@ -311,38 +400,53 @@ function App() {
     recognition.lang = languageCodes[selectedLanguage] || "en-US";
     recognition.continuous = false;
     recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
     setRecognizedText("");
     setIsRecording(true);
     setVoiceMessage("Listening... Speak your shopping command.");
 
     recognition.onstart = () => {
       setIsRecording(true);
+      setVoiceMessage("Microphone active. Speak now...");
     };
 
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results).map((result) => result[0].transcript).join("");
-      setRecognizedText(transcript);
-      if (event.results[event.results.length - 1].isFinal) {
+      let interim = "";
+      let final = "";
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      const text = final || interim;
+      if (text) setRecognizedText(text);
+
+      if (final) {
         setIsRecording(false);
-        setCommand(transcript);
+        setCommand(final);
         recognitionRef.current = null;
-        executeCommand(transcript);
+        executeCommand(final);
       }
     };
 
     recognition.onerror = (event) => {
+      console.warn("Speech recognition error:", event.error);
       setIsRecording(false);
       recognitionRef.current = null;
       if (hapticsEnabled) triggerHaptic([80, 40, 80]);
       let message = `Voice error: ${event.error}. Please try again.`;
-      if (event.error === "not-allowed") {
-        message = "Microphone access was blocked. Please click the camera/mic icon in your address bar to allow access.";
+      if (event.error === "not-allowed" || event.error === "permission-denied") {
+        message = "Microphone access was blocked. Please click the lock/settings icon in your browser address bar and allow Microphone permissions.";
       } else if (event.error === "no-speech") {
-        message = "No speech was heard. Tap the microphone and try speaking again.";
+        message = "No speech was heard. Tap the microphone and speak clearly.";
       } else if (event.error === "audio-capture") {
-        message = "No microphone was found. Please ensure a microphone is connected.";
+        message = "No microphone was found. Please check your audio input settings.";
       } else if (event.error === "network") {
-        message = "Speech recognition network error. Please check your connection or type in the box.";
+        message = "Speech recognition network error. Please ensure you are connected to the internet.";
       }
       setVoiceMessage(message);
     };
@@ -354,10 +458,11 @@ function App() {
 
     try {
       recognition.start();
-    } catch {
+    } catch (err) {
+      console.error("Speech start error:", err);
       setIsRecording(false);
       recognitionRef.current = null;
-      setVoiceMessage("Microphone could not start. Please try again.");
+      setVoiceMessage("Could not activate microphone. Tap again or type your command.");
     }
   }
 
@@ -424,14 +529,27 @@ function App() {
       <section className="summary-card"><p>{totalItems} {totalItems === 1 ? "item" : "items"} to buy</p><strong>~${estimatedTotal.toFixed(2)}</strong><span>{missingPriceCount ? `${missingPriceCount} price${missingPriceCount === 1 ? "" : "s"} needed` : "estimated"}</span></section>
       <p className="notice">{isLoading ? "Processing your request..." : `✦ ${voiceMessage}`}</p>
       <section className="budget-card"><div><p className="section-kicker">MONTHLY PLAN</p><h2>Set your grocery budget</h2><p className="budget-copy">VoxList will protect essentials first and defer lower-priority items when needed.</p></div><label className="budget-input"><span>$</span><input type="number" min="0" step="1" value={monthlyBudget || ""} onChange={(event) => updateBudget(event.target.value).catch(() => setVoiceMessage("Could not update your budget."))} placeholder="0" aria-label="Monthly grocery budget" /></label><div className="budget-stats"><span><strong>${budgetPlan.plannedSpend.toFixed(2)}</strong> planned</span><span><strong>${budgetPlan.remaining.toFixed(2)}</strong> remaining</span></div></section>
-      <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
+      <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}>
+        <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command (e.g., 'add 3 apples')..." aria-label="Shopping command" />
+        <button type="button" className={`inline-mic-btn ${isRecording ? "recording" : ""}`} onClick={isRecording ? stopListening : startListening} aria-label={isRecording ? "Stop listening" : "Start voice command"} title={isRecording ? "Stop voice listening" : "Speak a command"}>
+          <MicrophoneIcon />
+        </button>
+        <button type="submit" className="add-button" aria-label="Submit command">+</button>
+      </form>
       <section className="list-section">
         <div className="list-header-row">
-          <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <h2>Your list</h2>
-            <p className="list-subtitle">
-              {totalItems} {totalItems === 1 ? "item" : "items"} &bull; {items.filter((i) => i.completed).length} checked
-            </p>
+            <button
+              type="button"
+              className={`list-mic-action-btn ${isRecording ? "pulse-recording" : ""}`}
+              onClick={isRecording ? stopListening : startListening}
+              title="Tap to speak items into your list"
+              aria-label="Voice add to list"
+            >
+              <MicrophoneIcon />
+              <span>{isRecording ? "Listening..." : "Voice Add"}</span>
+            </button>
           </div>
           {items.length > 0 && (
             <div className="list-quick-actions">
@@ -635,7 +753,6 @@ function App() {
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}><div className="product-art mint">{validateEmoji(product.emoji)}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>)}</div></section>}
     </section>
-    <footer className="mic-bar"><button className="mic-button" aria-label="Start voice command" onClick={startListening}><MicrophoneIcon /></button><p>Tap to speak</p></footer>
     {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={stopListening} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={stopListening} aria-label="Stop listening"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
   </main>;
 }

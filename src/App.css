@@ -11,9 +11,9 @@
 
 .page-content {
   width: min(100%, 720px);
-  min-height: calc(100vh - 130px);
+  min-height: 100vh;
   margin: 0 auto;
-  padding: 48px 24px 40px;
+  padding: 48px 24px 64px;
 }
 
 .hero {
@@ -100,7 +100,8 @@ h1 {
 
 .command-row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
+  align-items: center;
 }
 
 .command-row input {
@@ -119,14 +120,89 @@ h1 {
   border-color: #ef9aa5;
 }
 
+.inline-mic-btn {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ef9aa5;
+  border-radius: 20px;
+  color: #ef9aa5;
+  background: rgba(239, 154, 165, 0.12);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.inline-mic-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.inline-mic-btn:hover {
+  background: rgba(239, 154, 165, 0.25);
+  transform: scale(1.04);
+}
+
+.inline-mic-btn.recording {
+  background: #ef4444;
+  border-color: #f87171;
+  color: #fff;
+  animation: pulse-mic 1.2s infinite;
+}
+
+.list-mic-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #ef9aa5;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #241314;
+  background: #ef9aa5;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.list-mic-action-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.list-mic-action-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.list-mic-action-btn.pulse-recording {
+  background: #ef4444;
+  border-color: #f87171;
+  color: #ffffff;
+  animation: pulse-mic 1.2s infinite;
+}
+
+@keyframes pulse-mic {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  70% { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
 .add-button {
   width: 56px;
+  height: 54px;
+  flex: 0 0 56px;
   border: 0;
   border-radius: 20px;
   color: #31191c;
   background: #ef9aa5;
   cursor: pointer;
   font-size: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .list-section,
