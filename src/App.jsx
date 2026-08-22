@@ -493,13 +493,24 @@ function App() {
   }
 
   function startListening() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceMessage("Speech recognition is not supported in this browser. Please use Chrome or Edge, or type commands below.");
+    if (typeof window !== "undefined" && window.isSecureContext === false && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      setVoiceMessage("Microphone requires HTTPS on other devices. Please open the secure HTTPS URL.");
       showVisualFeedback({
         type: "error",
-        title: "Browser Unsupported",
-        detail: "Speech recognition requires Google Chrome, Microsoft Edge, or Safari.",
+        title: "HTTPS Required for Microphone",
+        detail: "Browsers require a secure HTTPS connection to access the microphone on other devices.",
+        emoji: "🔒"
+      });
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceMessage("Web Speech API not supported in this browser. Please use Chrome, Edge, or Safari, or use device dictation in the input box.");
+      showVisualFeedback({
+        type: "error",
+        title: "Voice Not Supported",
+        detail: "Speech recognition works best in Chrome, Edge, and Safari. You can also tap the search input and use your phone/laptop keyboard's built-in mic!",
         emoji: "🎙️"
       });
       return;
@@ -519,22 +530,24 @@ function App() {
       // ignore
     }
 
-    // Try requesting mic permission via getUserMedia to unlock permissions if in iframe
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
-        // user may grant or deny in popup
-      });
-    }
-
     if (hapticsEnabled) triggerHaptic([30]);
     if (soundEnabled) playAudioChime("listen");
 
-    const recognition = new SpeechRecognition();
+    let recognition;
+    try {
+      recognition = new SpeechRecognition();
+    } catch (err) {
+      console.warn("Could not instantiate SpeechRecognition:", err);
+      setVoiceMessage("Could not initialize microphone. Please check browser permissions.");
+      return;
+    }
+
     recognitionRef.current = recognition;
     recognition.lang = languageCodes[selectedLanguage] || "en-US";
-    recognition.continuous = true;
+    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || "");
+    recognition.continuous = false; // continuous: false is universally supported across Chrome, Safari, Android, and iOS
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
 
     latestTranscriptRef.current = "";
     commandExecutedRef.current = false;
@@ -570,10 +583,9 @@ function App() {
           if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
             submitVoiceCommand(latestTranscriptRef.current);
           }
-        }, 1350);
+        }, 1300);
 
         if (hasFinal && text.length > 2) {
-          // If browser indicated a finalized clause, submit shortly
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
             if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
@@ -603,10 +615,15 @@ function App() {
       if (event.error === "not-allowed" || event.error === "permission-denied") {
         setIsRecording(false);
         recognitionRef.current = null;
-        setVoiceMessage("Microphone access was blocked. Please click the lock/settings icon in your browser address bar and allow Microphone permissions.");
+        setVoiceMessage("Microphone permission blocked. Please click the lock/settings icon in your browser address bar and allow Microphone.");
+        showVisualFeedback({
+          type: "error",
+          title: "Microphone Blocked",
+          detail: "Please click the lock icon in your browser address bar and change Microphone to 'Allow'.",
+          emoji: "🚫"
+        });
         return;
       }
-      // If we already have recognized text, submit it rather than failing
       if (latestTranscriptRef.current.trim() && !commandExecutedRef.current) {
         submitVoiceCommand(latestTranscriptRef.current);
         return;
@@ -614,7 +631,7 @@ function App() {
       setIsRecording(false);
       recognitionRef.current = null;
       if (hapticsEnabled) triggerHaptic([80, 40, 80]);
-      setVoiceMessage(`Voice error: ${event.error}. Please try again.`);
+      setVoiceMessage(`Voice status: ${event.error}. Please tap to try again.`);
     };
 
     recognition.onend = () => {
@@ -630,9 +647,15 @@ function App() {
       recognition.start();
     } catch (err) {
       console.error("Speech start error:", err);
-      setIsRecording(false);
-      recognitionRef.current = null;
-      setVoiceMessage("Could not activate microphone. Tap again or type your command.");
+      // Fallback attempt without continuous
+      try {
+        recognition.continuous = false;
+        recognition.start();
+      } catch (retryErr) {
+        setIsRecording(false);
+        recognitionRef.current = null;
+        setVoiceMessage("Could not activate microphone. Tap again or type your command.");
+      }
     }
   }
 
