@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const API_URL = import.meta.env.VITE_API_URL || "/api";
 const languages = ["English", "Español", "Français", "हिंदी", "Deutsch"];
 const languageCodes = { English: "en-US", Español: "es-ES", Français: "fr-FR", हिंदी: "hi-IN", Deutsch: "de-DE" };
 const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
 function validateEmoji(value) {
-  const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(String(value ?? ""))];
-  return segments.length === 1 && /\p{Extended_Pictographic}/u.test(segments[0]) ? segments[0] : "🛒";
+  if (!value) return "🛒";
+  const str = String(value).trim();
+  const segments = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(str)];
+  const char = segments[0]?.segment;
+  return segments.length === 1 && char && /\p{Extended_Pictographic}/u.test(char) ? char : "🛒";
 }
 
 function MicrophoneIcon() {
@@ -31,6 +34,8 @@ function App() {
   const [budgetPlan, setBudgetPlan] = useState({ monthlyBudget: 0, plannedSpend: 0, remaining: 0, buyNow: [], defer: [] });
   const [healthProfile, setHealthProfile] = useState({ goal: "balanced", notes: "" });
   const [wellnessPlan, setWellnessPlan] = useState(null);
+  const [cartNutrition, setCartNutrition] = useState(null);
+  const [isAnalyzingNutrition, setIsAnalyzingNutrition] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recognizedText, setRecognizedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -40,7 +45,8 @@ function App() {
   useEffect(() => {
     Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
       if (!itemResponse.ok || !suggestionResponse.ok || !budgetResponse.ok || !planResponse.ok) throw new Error("API unavailable");
-      setItems(await itemResponse.json());
+      const loadedItems = await itemResponse.json();
+      setItems(loadedItems);
       setSuggestions(await suggestionResponse.json());
       const budget = await budgetResponse.json();
       setMonthlyBudget(budget.monthly);
@@ -54,6 +60,28 @@ function App() {
       if (wellnessResponse.ok) setWellnessPlan(await wellnessResponse.json());
     }).catch(() => {});
   }, []);
+
+  // Refresh cart nutrition whenever items or health profile changes
+  useEffect(() => {
+    let isMounted = true;
+    setIsAnalyzingNutrition(true);
+    fetch(`${API_URL}/cart-nutrition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, profile: healthProfile }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isMounted && data) setCartNutrition(data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setIsAnalyzingNutrition(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [items, healthProfile]);
 
   useEffect(() => () => recognitionRef.current?.stop(), []);
 
@@ -81,9 +109,13 @@ function App() {
     await refreshBudgetPlan();
   }
 
-  async function addItem(name, quantity = 1, category, emoji) {
+  async function addItem(name, quantity = 1, category, emoji, priority = "medium", unitPrice) {
     if (!name?.trim()) return;
-    const response = await fetch(`${API_URL}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, quantity, category, emoji: validateEmoji(emoji) }) });
+    const response = await fetch(`${API_URL}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, quantity, category, emoji: validateEmoji(emoji), priority, unitPrice })
+    });
     if (!response.ok) throw new Error("Could not add item");
     const item = await response.json();
     setItems((current) => [...current, item]);
@@ -128,32 +160,77 @@ function App() {
     if (!value.trim()) return;
     setIsLoading(true);
     try {
-      const action = parseCommand(value);
+      const action = await parseCommand(value);
       if (action.intent === "search") await searchProducts(action);
       if (action.intent === "remove") await removeItem(action.name || action.item);
-      if (action.intent === "add") await addItem(action.item, action.quantity, action.category, action.emoji);
+      if (action.intent === "add") await addItem(action.item, action.quantity, action.category, action.emoji, action.priority, action.unitPrice);
     } catch { setVoiceMessage("Something went wrong. Please make sure the backend server is running."); }
     finally { setIsLoading(false); }
   }
 
   function startListening() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setVoiceMessage("Speech recognition is not supported here. Please use Chrome or Edge."); return; }
-    recognitionRef.current?.stop();
+    if (!SpeechRecognition) {
+      setVoiceMessage("Speech recognition is not supported in this browser. Please use Chrome, Edge, or type your command below.");
+      return;
+    }
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
-    recognition.lang = languageCodes[selectedLanguage];
+    recognition.lang = languageCodes[selectedLanguage] || "en-US";
     recognition.continuous = false;
     recognition.interimResults = true;
-    setRecognizedText(""); setIsRecording(true); setVoiceMessage("Listening... Speak your shopping command.");
+    setRecognizedText("");
+    setIsRecording(true);
+    setVoiceMessage("Listening... Speak your shopping command.");
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+    };
+
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results).map((result) => result[0].transcript).join("");
       setRecognizedText(transcript);
-      if (event.results[event.results.length - 1].isFinal) { setIsRecording(false); setCommand(transcript); recognitionRef.current = null; executeCommand(transcript); }
+      if (event.results[event.results.length - 1].isFinal) {
+        setIsRecording(false);
+        setCommand(transcript);
+        recognitionRef.current = null;
+        executeCommand(transcript);
+      }
     };
-    recognition.onerror = (event) => { setIsRecording(false); recognitionRef.current = null; const message = event.error === "not-allowed" ? "Microphone access was blocked. Enable it in your browser settings." : event.error === "network" ? "Speech recognition could not reach the browser voice service. Check your connection or use the text box." : `Voice error: ${event.error}. Please try again.`; setVoiceMessage(message); };
-    recognition.onend = () => { setIsRecording(false); recognitionRef.current = null; };
-    try { recognition.start(); } catch { setIsRecording(false); recognitionRef.current = null; setVoiceMessage("The microphone is already starting. Please try again."); }
+
+    recognition.onerror = (event) => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      let message = `Voice error: ${event.error}. Please try again.`;
+      if (event.error === "not-allowed") {
+        message = "Microphone access was blocked. Please click the camera/mic icon in your address bar to allow access.";
+      } else if (event.error === "no-speech") {
+        message = "No speech was heard. Tap the microphone and try speaking again.";
+      } else if (event.error === "audio-capture") {
+        message = "No microphone was found. Please ensure a microphone is connected.";
+      } else if (event.error === "network") {
+        message = "Speech recognition network error. Please check your connection or type in the box.";
+      }
+      setVoiceMessage(message);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      setVoiceMessage("Microphone could not start. Please try again.");
+    }
   }
 
   function stopListening() {
@@ -172,6 +249,84 @@ function App() {
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
       <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const emoji = validateEmoji(item.emoji); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className="item-art mint">{emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p><label className="price-editor"><span>Unit price</span><div><b>$</b><input type="number" min="0" step="0.01" value={item.unitPrice ?? ""} placeholder="Price" aria-label={`Set price for ${item.name}`} onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))} onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))} /></div></label></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
       <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.estimatedCost == null ? "Add a price to include it" : "Lower priority or over budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
+      <section className="cart-nutrition-card">
+        <div className="nutrition-heading">
+          <div>
+            <p className="section-kicker">NUTRITION & WELLNESS ADVICE</p>
+            <h2>Your Cart Nutritional Balance</h2>
+            <p className="nutrition-subtitle">Real-time dietary guidance based on the {items.length} {items.length === 1 ? "item" : "items"} currently in your grocery basket.</p>
+          </div>
+          {cartNutrition?.score && <span className="nutrition-score-badge">{cartNutrition.score}</span>}
+        </div>
+
+        {isAnalyzingNutrition && <div className="nutrition-analyzing"><span>✦</span> Analyzing basket nutrition...</div>}
+
+        {cartNutrition && (
+          <div className="nutrition-content">
+            <div className="nutrition-summary-box">
+              <p className="nutrition-summary-text">{cartNutrition.summary}</p>
+            </div>
+
+            {cartNutrition.breakdown && (
+              <div className="nutrition-groups-grid">
+                {cartNutrition.breakdown.map((group) => (
+                  <div className={`nutrition-group-pill ${group.count > 0 ? "has-items" : "empty-group"}`} key={group.group}>
+                    <span className="group-icon">{group.icon}</span>
+                    <div className="group-info">
+                      <strong>{group.group}</strong>
+                      <small>{group.count} in basket</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {cartNutrition.highlights && cartNutrition.highlights.length > 0 && (
+              <div className="nutrition-highlights">
+                <h3>Nutritional Strengths</h3>
+                <ul>
+                  {cartNutrition.highlights.map((highlight, idx) => (
+                    <li key={idx}><span>✓</span> {highlight}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {cartNutrition.goalAlignment && (
+              <div className="nutrition-goal-box">
+                <div className="goal-tag">Goal Alignment · {healthProfile.goal.replace("_", " ")}</div>
+                <p>{cartNutrition.goalAlignment}</p>
+              </div>
+            )}
+
+            {cartNutrition.recommendations && cartNutrition.recommendations.length > 0 && (
+              <div className="nutrition-recommendations">
+                <div className="rec-header">
+                  <h3>Recommended Additions</h3>
+                  <small>Fill nutritional gaps</small>
+                </div>
+                <div className="rec-grid">
+                  {cartNutrition.recommendations.map((rec) => (
+                    <button
+                      key={rec.name}
+                      className="rec-card"
+                      onClick={() => executeCommand(`add ${rec.name}`)}
+                      aria-label={`Add ${rec.name} to list`}
+                    >
+                      <span className="rec-emoji">{validateEmoji(rec.emoji)}</span>
+                      <div className="rec-details">
+                        <strong>{rec.name}</strong>
+                        <p>{rec.reason}</p>
+                      </div>
+                      <span className="rec-add-label">+ Add</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
       <section className="wellness-card"><div className="wellness-heading"><div><p className="section-kicker">WELLNESS MODE</p><h2>Shop for your health focus</h2><p className="budget-copy">Choose a goal and Voxie will shape a grocery starting point around it.</p></div><span className="wellness-mark">Careful choices</span></div><div className="health-goals">{[["balanced", "Balanced"], ["weight_loss", "Weight-aware"], ["blood_sugar", "Blood-sugar aware"], ["iron", "Iron focus"], ["protein", "Higher protein"]].map(([goal, label]) => <button key={goal} className={healthProfile.goal === goal ? "health-goal active" : "health-goal"} onClick={() => updateHealthProfile({ goal }).catch(() => setVoiceMessage("Could not save your health focus."))}>{label}</button>)}</div><label className="health-notes"><span>Anything else to consider?</span><textarea value={healthProfile.notes} onChange={(event) => setHealthProfile((current) => ({ ...current, notes: event.target.value }))} onBlur={() => updateHealthProfile({ notes: healthProfile.notes }).catch(() => setVoiceMessage("Could not save your notes."))} placeholder="Example: vegetarian, food allergy, family preferences" maxLength="500" /></label>{wellnessPlan && <div className="wellness-result"><div><h3>{wellnessPlan.title}</h3><p>{wellnessPlan.guidance}</p></div><div className="wellness-groceries">{wellnessPlan.groceries.map((grocery) => <button key={grocery.name} className="wellness-item" onClick={() => executeCommand(`add ${grocery.name}`)}><strong>{grocery.name}</strong><small>{grocery.reason}</small><span>+ Add</span></button>)}</div><p className="health-safety">{wellnessPlan.safety}</p></div>}</section>
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}><div className="product-art mint">{validateEmoji(product.emoji)}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>)}</div></section>}

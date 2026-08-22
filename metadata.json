@@ -1,0 +1,10 @@
+{
+  "name": "Voxie",
+  "description": "Voice-enabled grocery shopping assistant with smart command parsing, budget planning, and wellness guidance.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
