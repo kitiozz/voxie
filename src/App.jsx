@@ -4,7 +4,14 @@ import "./App.css";
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const languages = ["English", "Español", "Français", "हिंदी", "Deutsch"];
 const languageCodes = { English: "en-US", Español: "es-ES", Français: "fr-FR", हिंदी: "hi-IN", Deutsch: "de-DE" };
-const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const numberWords = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  dozen: 12, "half dozen": 6, couple: 2, pair: 2, few: 3,
+  un: 1, une: 1, dos: 2, deux: 2, tres: 3, trois: 3, cuatro: 4, quatre: 4, cinco: 5, cinq: 5,
+  ein: 1, eine: 1, zwei: 2, drei: 3, vier: 4, fünf: 5,
+  एक: 1, दो: 2, तीन: 3, चार: 4, पांच: 5
+};
 
 function validateEmoji(value) {
   if (!value) return "🛒";
@@ -71,44 +78,114 @@ function playAudioChime(type) {
   }
 }
 
+function detectCategoryAndEmoji(name) {
+  const lower = String(name || "").toLowerCase();
+  if (/milk|cheese|yogurt|butter|cream|dairy|curd|paneer|ghee/i.test(lower)) {
+    return { category: "Dairy", emoji: /cheese/i.test(lower) ? "🧀" : /butter/i.test(lower) ? "🧈" : "🥛" };
+  }
+  if (/apple|banana|orange|berry|berries|strawberry|blueberry|spinach|greens|lettuce|tomato|potato|onion|carrot|broccoli|mango|fruit|vegetable|salad|avocado|cucumber|pepper|kale|lemon|lime|grapes|watermelon|garlic|ginger/i.test(lower)) {
+    let emoji = "🍎";
+    if (/banana/i.test(lower)) emoji = "🍌";
+    else if (/orange/i.test(lower)) emoji = "🍊";
+    else if (/berry|berries|strawberry/i.test(lower)) emoji = "🍓";
+    else if (/spinach|greens|lettuce|kale/i.test(lower)) emoji = "🥬";
+    else if (/tomato/i.test(lower)) emoji = "🍅";
+    else if (/potato/i.test(lower)) emoji = "🥔";
+    else if (/carrot/i.test(lower)) emoji = "🥕";
+    else if (/broccoli/i.test(lower)) emoji = "🥦";
+    else if (/avocado/i.test(lower)) emoji = "🥑";
+    else if (/lemon|lime/i.test(lower)) emoji = "🍋";
+    else if (/grapes/i.test(lower)) emoji = "🍇";
+    else if (/watermelon/i.test(lower)) emoji = "🍉";
+    return { category: "Produce", emoji };
+  }
+  if (/water|juice|coffee|tea|soda|beverage|drink|coke|seltzer|smoothie/i.test(lower)) {
+    return { category: "Beverages", emoji: /coffee/i.test(lower) ? "☕" : /tea/i.test(lower) ? "🍵" : /juice/i.test(lower) ? "🧃" : "💧" };
+  }
+  if (/bread|cereal|grain|rice|pasta|flour|oats|oatmeal|bagel|tortilla|croissant|bakery|noodle/i.test(lower)) {
+    return { category: "Bakery", emoji: /rice/i.test(lower) ? "🍚" : /croissant|bagel/i.test(lower) ? "🥐" : "🍞" };
+  }
+  if (/chicken|beef|meat|fish|salmon|tuna|pork|turkey|shrimp|steak|bacon|sausage/i.test(lower)) {
+    return { category: "Meat & Seafood", emoji: /fish|salmon|tuna/i.test(lower) ? "🐟" : /shrimp/i.test(lower) ? "🦐" : "🍗" };
+  }
+  if (/chips|cookie|chocolate|candy|popcorn|nuts|almonds|cashews|pretzel|snack/i.test(lower)) {
+    return { category: "Snacks", emoji: /chocolate/i.test(lower) ? "🍫" : /popcorn/i.test(lower) ? "🍿" : "🍪" };
+  }
+  if (/toothpaste|soap|shampoo|conditioner|deodorant|lotion|brush|tissue|paper towel|wipe/i.test(lower)) {
+    return { category: "Personal Care", emoji: /toothpaste/i.test(lower) ? "🪥" : "🧼" };
+  }
+  if (/egg/i.test(lower)) {
+    return { category: "Dairy", emoji: "🥚" };
+  }
+  return { category: "Grocery", emoji: "🛒" };
+}
+
 function localParseCommand(raw) {
   const text = String(raw || "").trim();
   const lower = text.toLowerCase();
 
+  // Search intent
   if (/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b/i.test(lower)) {
-    const query = lower.replace(/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b\s*/i, "").trim();
-    return { intent: "search", query, organic: lower.includes("organic") };
+    const query = lower
+      .replace(/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b\s*/i, "")
+      .replace(/under\s*\$?\d+/i, "")
+      .trim();
+    const maxPriceMatch = lower.match(/under\s*\$?(\d+(?:\.\d+)?)/i);
+    const organic = lower.includes("organic") || lower.includes("orgánico") || lower.includes("bio");
+    return { intent: "search", query: query || text, organic, maxPrice: maxPriceMatch ? maxPriceMatch[1] : undefined };
   }
 
-  if (/^(remove|delete|drop|take off|take out|scratch|clear|eliminar|quitar|supprimer|entfernen|हटाएं)\b/i.test(lower)) {
-    const name = lower.replace(/^(remove|delete|drop|take off|take out|scratch|clear|eliminar|quitar|supprimer|entfernen|हटाएं)\b\s*/i, "").replace(/from my list|off my list|please/gi, "").trim();
+  // Remove intent
+  if (/^(remove|delete|drop|take off|take out|scratch|clear|cross out|get rid of|eliminar|quitar|supprimer|entfernen|हटाएं)\b/i.test(lower) ||
+      (/\b(from my list|off my list|off the list|from the list|anymore)\b/i.test(lower) && /(remove|delete|drop|take|scratch|don't|no)/i.test(lower))) {
+    const name = lower
+      .replace(/^(remove|delete|drop|take off|take out|scratch|clear|cross out|get rid of|eliminar|quitar|supprimer|entfernen|हटाएं)\b\s*/i, "")
+      .replace(/from my list|off my list|from the list|on my list|off the cart|from the cart|anymore|please/gi, "")
+      .replace(/^(the|a|an|some)\b\s*/i, "")
+      .trim();
     return { intent: "remove", name: name || text, item: name || text };
   }
 
+  // Add intent
   let qty = 1;
-  const numMatch = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|un|une|dos|deux|tres|trois|ein|eine|zwei|एक|दो|तीन)\b/i);
+  let remaining = text;
+
+  const numPattern = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen|half dozen|couple|pair|few|un|une|dos|deux|tres|trois|cuatro|quatre|cinco|cinq|ein|eine|zwei|drei|vier|fünf|एक|दो|तीन|चार|पांच)\s*(?:bottles? of|cans? of|bags? of|boxes? of|packs? of|cartons? of|gallons? of|litres? of|liters? of|bunches? of|loaves of|loaf of|kg of|g of|lbs? of|pieces? of|de|d'|von)?\b/i;
+  const numMatch = text.match(numPattern);
   if (numMatch) {
-    const found = numMatch[1].toLowerCase();
-    qty = numberWords[found] || parseInt(found, 10) || 1;
+    const wordsInMatch = numMatch[1].toLowerCase();
+    qty = numberWords[wordsInMatch] || parseInt(wordsInMatch, 10) || 1;
+    remaining = text.replace(numMatch[0], " ");
   }
 
-  const cleanName = text
-    .replace(/^(add|buy|get|put|need|i need|i want|pick up|grab|agregar|añadir|ajouter|hinzufügen|जोड़ें|खरीदें)\b\s*/i, "")
-    .replace(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|un|une|dos|deux|tres|trois|ein|eine|zwei|एक|दो|तीन)\s+(?:bottles? of|cans? of|bags? of|boxes? of|packs? of|kg of|g of|litres? of|bunches? of|loaves of|loaf of)?/i, "")
-    .replace(/\s+(to my list|on my list|to the cart|please)$/i, "")
+  let priority = "medium";
+  if (/(essential|urgent|must have|important|critical|staple|asap|emergency|urgente|wichtig|जरूरी)/i.test(lower)) {
+    priority = "high";
+    remaining = remaining.replace(/(essential|urgent|must have|important|critical|staple|asap|emergency|urgente|wichtig|जरूरी)/gi, " ");
+  } else if (/(optional|can wait|treat|snack|luxury|maybe|if cheap|opcional|peut attendre|wenn billig|वैकल्पिक)/i.test(lower)) {
+    priority = "low";
+    remaining = remaining.replace(/(optional|can wait|treat|snack|luxury|maybe|if cheap|opcional|peut attendre|wenn billig|वैकल्पिक)/gi, " ");
+  }
+
+  const cleanName = remaining
+    .replace(/^(can you please|could you please|please|hey voxlist|voxlist|voxie|ok|okay)\b\s*/i, "")
+    .replace(/^(add|buy|get|put|need|i need|i want|we need|we are out of|pick up|grab|purchase|toss in|include|order|bring|agregar|añadir|comprar|necesito|ajouter|acheter|mettre|hinzufügen|kaufen|जोड़ें|खरीदें)\b\s*/i, "")
+    .replace(/^(some|a|an|the)\b\s*/i, "")
+    .replace(/\s+(to my list|on my list|to the cart|to the list|in my list|from the store|please)$/i, "")
     .trim();
 
   const finalName = cleanName || text;
-  let category = "Produce";
-  let emoji = "🍎";
-  if (/milk|cheese|yogurt|butter/i.test(finalName)) { category = "Dairy"; emoji = "🥛"; }
-  else if (/water|juice|coffee|tea|soda/i.test(finalName)) { category = "Beverages"; emoji = "💧"; }
-  else if (/bread|cereal|grain|rice|pasta/i.test(finalName)) { category = "Bakery"; emoji = "🍞"; }
-  else if (/toothpaste|soap|shampoo/i.test(finalName)) { category = "Personal Care"; emoji = "🪥"; }
-  else if (/egg/i.test(finalName)) { category = "Dairy"; emoji = "🥚"; }
-  else if (/banana/i.test(finalName)) { category = "Produce"; emoji = "🍌"; }
+  const detected = detectCategoryAndEmoji(finalName);
 
-  return { intent: "add", item: finalName, quantity: qty, category, emoji, priority: "medium" };
+  return {
+    intent: "add",
+    item: finalName,
+    name: finalName,
+    quantity: qty,
+    category: detected.category,
+    emoji: detected.emoji,
+    priority
+  };
 }
 
 async function parseCommand(raw) {
@@ -144,6 +221,9 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const recognitionRef = useRef(null);
   const feedbackTimerRef = useRef(null);
+  const latestTranscriptRef = useRef("");
+  const commandExecutedRef = useRef(false);
+  const silenceTimerRef = useRef(null);
 
   useEffect(() => {
     Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
@@ -186,7 +266,16 @@ function App() {
     };
   }, [items, healthProfile]);
 
-  useEffect(() => () => recognitionRef.current?.stop(), []);
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
   const estimatedTotal = items.reduce((sum, item) => sum + (item.unitPrice == null ? 0 : item.quantity * item.unitPrice), 0);
@@ -349,18 +438,58 @@ function App() {
   }
 
   async function executeCommand(value) {
-    if (!value.trim()) return;
+    if (!value || !String(value).trim()) return;
+    const cleanCmd = String(value).trim();
     setIsLoading(true);
     try {
-      const action = await parseCommand(value);
-      if (action.intent === "search") await searchProducts(action);
-      if (action.intent === "remove") await removeItem(action.name || action.item);
-      if (action.intent === "add") await addItem(action.item, action.quantity, action.category, action.emoji, action.priority, action.unitPrice);
+      const action = await parseCommand(cleanCmd);
+      if (action.intent === "search") {
+        await searchProducts(action);
+      } else if (action.intent === "remove") {
+        await removeItem(action.name || action.item || cleanCmd);
+      } else if (action.intent === "add") {
+        await addItem(action.item || cleanCmd, action.quantity || 1, action.category, action.emoji, action.priority, action.unitPrice);
+      } else {
+        await addItem(cleanCmd, 1);
+      }
     } catch {
-      if (hapticsEnabled) triggerHaptic([80, 40, 80]);
-      setVoiceMessage("Something went wrong. Please make sure the backend server is running.");
+      // Local NLP fallback
+      const local = localParseCommand(cleanCmd);
+      if (local.intent === "remove") {
+        await removeItem(local.name || local.item || cleanCmd);
+      } else if (local.intent === "search") {
+        await searchProducts(local);
+      } else {
+        await addItem(local.item || cleanCmd, local.quantity || 1, local.category, local.emoji, local.priority);
+      }
+    } finally {
+      setIsLoading(false);
     }
-    finally { setIsLoading(false); }
+  }
+
+  function submitVoiceCommand(textToSubmit) {
+    const raw = String(textToSubmit || latestTranscriptRef.current || "").trim();
+    if (!raw || commandExecutedRef.current) return;
+    commandExecutedRef.current = true;
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+    } catch {
+      // ignore
+    }
+
+    setIsRecording(false);
+    setCommand(raw);
+    setVoiceMessage(`Processing voice command: “${raw}”`);
+    executeCommand(raw);
   }
 
   function startListening() {
@@ -374,6 +503,11 @@ function App() {
         emoji: "🎙️"
       });
       return;
+    }
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
 
     try {
@@ -398,9 +532,12 @@ function App() {
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = languageCodes[selectedLanguage] || "en-US";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
+
+    latestTranscriptRef.current = "";
+    commandExecutedRef.current = false;
     setRecognizedText("");
     setIsRecording(true);
     setVoiceMessage("Listening... Speak your shopping command.");
@@ -411,49 +548,82 @@ function App() {
     };
 
     recognition.onresult = (event) => {
-      let interim = "";
-      let final = "";
+      let accumulated = "";
+      let hasFinal = false;
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
-        } else {
-          interim += event.results[i][0].transcript;
+      for (let i = 0; i < event.results.length; ++i) {
+        const item = event.results[i];
+        if (item && item[0]) {
+          accumulated += item[0].transcript;
+          if (item.isFinal) hasFinal = true;
         }
       }
 
-      const text = final || interim;
-      if (text) setRecognizedText(text);
+      const text = accumulated.trim();
+      if (text) {
+        latestTranscriptRef.current = text;
+        setRecognizedText(text);
 
-      if (final) {
-        setIsRecording(false);
-        setCommand(final);
-        recognitionRef.current = null;
-        executeCommand(final);
+        // Reset silence timer on every spoken chunk (auto-submit after brief pause)
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
+            submitVoiceCommand(latestTranscriptRef.current);
+          }
+        }, 1350);
+
+        if (hasFinal && text.length > 2) {
+          // If browser indicated a finalized clause, submit shortly
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
+              submitVoiceCommand(latestTranscriptRef.current);
+            }
+          }, 350);
+        }
+      }
+    };
+
+    recognition.onspeechend = () => {
+      if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
+        setTimeout(() => {
+          submitVoiceCommand(latestTranscriptRef.current);
+        }, 300);
       }
     };
 
     recognition.onerror = (event) => {
       console.warn("Speech recognition error:", event.error);
+      if (event.error === "no-speech" && !latestTranscriptRef.current.trim()) {
+        setIsRecording(false);
+        recognitionRef.current = null;
+        setVoiceMessage("No speech was heard. Tap the microphone and speak clearly.");
+        return;
+      }
+      if (event.error === "not-allowed" || event.error === "permission-denied") {
+        setIsRecording(false);
+        recognitionRef.current = null;
+        setVoiceMessage("Microphone access was blocked. Please click the lock/settings icon in your browser address bar and allow Microphone permissions.");
+        return;
+      }
+      // If we already have recognized text, submit it rather than failing
+      if (latestTranscriptRef.current.trim() && !commandExecutedRef.current) {
+        submitVoiceCommand(latestTranscriptRef.current);
+        return;
+      }
       setIsRecording(false);
       recognitionRef.current = null;
       if (hapticsEnabled) triggerHaptic([80, 40, 80]);
-      let message = `Voice error: ${event.error}. Please try again.`;
-      if (event.error === "not-allowed" || event.error === "permission-denied") {
-        message = "Microphone access was blocked. Please click the lock/settings icon in your browser address bar and allow Microphone permissions.";
-      } else if (event.error === "no-speech") {
-        message = "No speech was heard. Tap the microphone and speak clearly.";
-      } else if (event.error === "audio-capture") {
-        message = "No microphone was found. Please check your audio input settings.";
-      } else if (event.error === "network") {
-        message = "Speech recognition network error. Please ensure you are connected to the internet.";
-      }
-      setVoiceMessage(message);
+      setVoiceMessage(`Voice error: ${event.error}. Please try again.`);
     };
 
     recognition.onend = () => {
-      setIsRecording(false);
-      recognitionRef.current = null;
+      if (!commandExecutedRef.current && latestTranscriptRef.current.trim()) {
+        submitVoiceCommand(latestTranscriptRef.current);
+      } else {
+        setIsRecording(false);
+        recognitionRef.current = null;
+      }
     };
 
     try {
@@ -467,10 +637,23 @@ function App() {
   }
 
   function stopListening() {
-    recognitionRef.current?.stop();
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    // If words were spoken, submit them immediately!
+    if (latestTranscriptRef.current.trim() && !commandExecutedRef.current) {
+      submitVoiceCommand(latestTranscriptRef.current);
+      return;
+    }
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
     recognitionRef.current = null;
     setIsRecording(false);
-    setVoiceMessage("Voice input cancelled.");
+    setVoiceMessage("Voice input closed.");
   }
 
   return <main className="app">
@@ -753,7 +936,55 @@ function App() {
       <section className="suggestions"><h2>✦ Suggested for you</h2><div className="suggestion-list">{suggestions.map((item) => <button key={item} className="suggestion" onClick={() => executeCommand(`add ${item}`)}>+ {item}</button>)}</div></section>
       {products.length > 0 && <section className="results"><h2>Product matches</h2><div className="product-grid">{products.map((product) => <article className="product-card" key={product.id}><div className="product-art mint">{validateEmoji(product.emoji)}</div><p className="product-category">{product.category}</p><strong>{product.name}</strong><p>{product.brand} · {product.size}</p><div><span>${product.price.toFixed(2)}</span>{product.organic && <em>Organic</em>}</div><button onClick={() => executeCommand(`add ${product.name}`)}>Add to list</button></article>)}</div></section>}
     </section>
-    {isRecording && <div className="recording-overlay"><section className="recording-card"><button className="close-recording" onClick={stopListening} aria-label="Close recording">×</button><p className="live-transcript">{recognizedText || "Listening for your shopping command"}<span>...</span></p><div className="waveform" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button className="recording-mic" onClick={stopListening} aria-label="Stop listening"><MicrophoneIcon /></button><p className="listening-label">Listening...</p></section></div>}
+    {isRecording && (
+      <div className="recording-overlay">
+        <section className="recording-card" role="dialog" aria-modal="true" aria-label="Voice command recording">
+          <button
+            type="button"
+            className="close-recording"
+            onClick={() => {
+              if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+              try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+              recognitionRef.current = null;
+              setIsRecording(false);
+              setVoiceMessage("Voice input cancelled.");
+            }}
+            aria-label="Cancel recording"
+          >
+            ×
+          </button>
+          <p className="live-transcript">
+            {recognizedText ? `“${recognizedText}”` : "Listening for your shopping command..."}
+          </p>
+          <div className="waveform" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", width: "100%" }}>
+            <button
+              type="button"
+              className="recording-mic"
+              onClick={() => submitVoiceCommand(recognizedText || latestTranscriptRef.current)}
+              aria-label="Tap to submit voice command"
+              title="Tap to submit now"
+            >
+              <MicrophoneIcon />
+            </button>
+            <p className="listening-label">
+              {recognizedText ? "Tap mic or wait to add to list" : "Speak now (e.g. 'Add 3 apples')"}
+            </p>
+            {recognizedText && (
+              <button
+                type="button"
+                className="modal-submit-voice-btn"
+                onClick={() => submitVoiceCommand(recognizedText || latestTranscriptRef.current)}
+              >
+                ✓ Add &ldquo;{recognizedText}&rdquo; to list
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
+    )}
   </main>;
 }
 
