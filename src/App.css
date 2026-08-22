@@ -1991,28 +1991,31 @@ h2 {
 }
 
 .toggle-pill {
-  border: 1px solid rgba(239, 154, 165, 0.25);
-  background: rgba(255, 255, 255, 0.05);
-  color: #cbb8b0;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
+  border: 1px solid #5a423d;
+  background: #281d1b;
+  color: #f7e6e1;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
   border-radius: 999px;
   cursor: pointer;
   transition: all 180ms ease;
   white-space: nowrap;
+  letter-spacing: 0.2px;
 }
 
 .toggle-pill:hover {
-  background: rgba(239, 154, 165, 0.15);
-  color: #fff8f3;
+  background: #3a2825;
+  color: #ffffff;
+  border-color: #ef9aa5;
 }
 
 .toggle-pill.active {
   border-color: #ef9aa5;
-  background: rgba(239, 154, 165, 0.22);
-  color: #fff8f3;
-  box-shadow: 0 0 10px rgba(239, 154, 165, 0.25);
+  background: #ef9aa5;
+  color: #1f0f11;
+  font-weight: 800;
+  box-shadow: 0 2px 10px rgba(239, 154, 165, 0.35);
 }
 
 .voice-feedback-hud {

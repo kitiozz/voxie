@@ -30,7 +30,7 @@ function validateEmoji(value) {
 
 function cleanItemName(value) {
   return String(value ?? "")
-    .replace(/^(hello|hi|hey|please|voxie|ok|okay)\b\s*/i, "")
+    .replace(/^(hello|hi|hey|please|voxlist|voxie|ok|okay)\b\s*/i, "")
     .replace(/^(add|buy|get|put|need|i need|i want|we need|we are out of|pick up|grab|purchase|toss in|include|agregar|añadir|comprar|necesito|ajouter|acheter|mettre|il me faut|hinzufügen|kaufen|brauche|जोड़ें|खरीदें|चाहिए|डालें)\b\s*/i, "")
     .replace(/\s+(to my list|on my list|to the cart|to the list|in my list|from the store|please)$/i, "")
     .trim();
