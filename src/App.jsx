@@ -18,6 +18,59 @@ function MicrophoneIcon() {
   return <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><path d="M12 17v4" /><path d="M8 21h8" /></svg>;
 }
 
+function triggerHaptic(pattern) {
+  if (typeof window !== "undefined" && "vibrate" in navigator) {
+    try {
+      navigator.vibrate(pattern);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function playAudioChime(type) {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    if (ctx.state === "suspended") ctx.resume();
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    gain.gain.setValueAtTime(0.08, now);
+
+    if (type === "add") {
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.14); // G5
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.28);
+    } else if (type === "remove") {
+      osc.frequency.setValueAtTime(659.25, now); // E5
+      osc.frequency.exponentialRampToValueAtTime(392.00, now + 0.16); // G4
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (type === "listen") {
+      osc.frequency.setValueAtTime(440, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    }
+  } catch {
+    // AudioContext blocked or not allowed
+  }
+}
+
 async function parseCommand(raw) {
   const response = await fetch(`${API_URL}/parse-command`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: raw }) });
   if (!response.ok) throw new Error("Could not parse command");
@@ -30,6 +83,7 @@ function App() {
   const [items, setItems] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [products, setProducts] = useState([]);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState("All");
   const [monthlyBudget, setMonthlyBudget] = useState(0);
   const [budgetPlan, setBudgetPlan] = useState({ monthlyBudget: 0, plannedSpend: 0, remaining: 0, buyNow: [], defer: [] });
   const [healthProfile, setHealthProfile] = useState({ goal: "balanced", notes: "" });
@@ -40,7 +94,12 @@ function App() {
   const [recognizedText, setRecognizedText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [voiceMessage, setVoiceMessage] = useState("Ready for your shopping command.");
+  const [voiceFeedback, setVoiceFeedback] = useState(null);
+  const [highlightedItemId, setHighlightedItemId] = useState(null);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const recognitionRef = useRef(null);
+  const feedbackTimerRef = useRef(null);
 
   useEffect(() => {
     Promise.all([fetch(`${API_URL}/items`), fetch(`${API_URL}/suggestions`), fetch(`${API_URL}/budget`), fetch(`${API_URL}/budget/plan`)]).then(async ([itemResponse, suggestionResponse, budgetResponse, planResponse]) => {
@@ -109,6 +168,14 @@ function App() {
     await refreshBudgetPlan();
   }
 
+  function showVisualFeedback(feedback) {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    setVoiceFeedback(feedback);
+    feedbackTimerRef.current = setTimeout(() => {
+      setVoiceFeedback(null);
+    }, 4200);
+  }
+
   async function addItem(name, quantity = 1, category, emoji, priority = "medium", unitPrice) {
     if (!name?.trim()) return;
     const response = await fetch(`${API_URL}/items`, {
@@ -123,17 +190,62 @@ function App() {
     setCommand("");
     await refreshSuggestions();
     await refreshBudgetPlan();
-    setVoiceMessage(`Added ${item.quantity > 1 ? `${item.quantity} ` : ""}${item.name} to your list.`);
+
+    // Haptic & Visual Feedback
+    if (hapticsEnabled) triggerHaptic([40, 50, 45]);
+    if (soundEnabled) playAudioChime("add");
+    setHighlightedItemId(item.id);
+    setTimeout(() => setHighlightedItemId(null), 3800);
+
+    const message = `Added ${item.quantity > 1 ? `${item.quantity}x ` : ""}${item.name} to your list.`;
+    setVoiceMessage(message);
+    showVisualFeedback({
+      type: "add",
+      title: "Item Added",
+      detail: `${item.quantity > 1 ? `${item.quantity}x ` : ""}${item.name}`,
+      emoji: validateEmoji(item.emoji),
+      category: item.category,
+      priority: item.priority || "medium"
+    });
   }
 
   async function removeItem(name) {
-    const item = items.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
-    if (!item) { setVoiceMessage(`I could not find “${name}” on your list.`); return; }
+    const rawTarget = String(name || "").trim().toLowerCase();
+    const item = items.find((entry) => {
+      const entryName = entry.name.toLowerCase();
+      return entryName === rawTarget || entryName.includes(rawTarget) || rawTarget.includes(entryName);
+    });
+
+    if (!item) {
+      if (hapticsEnabled) triggerHaptic([80, 40, 80]);
+      setVoiceMessage(`I could not find “${name}” on your list.`);
+      showVisualFeedback({
+        type: "error",
+        title: "Not Found",
+        detail: `Could not find “${name}” on your list.`,
+        emoji: "🔍"
+      });
+      return;
+    }
+
     const response = await fetch(`${API_URL}/items/${item.id}`, { method: "DELETE" });
     if (!response.ok) throw new Error("Could not remove item");
     setItems((current) => current.filter((entry) => entry.id !== item.id));
     await refreshBudgetPlan();
-    setVoiceMessage(`Removed ${item.name} from your list.`);
+
+    // Haptic & Visual Feedback
+    if (hapticsEnabled) triggerHaptic([60, 40]);
+    if (soundEnabled) playAudioChime("remove");
+
+    const message = `Removed ${item.name} from your list.`;
+    setVoiceMessage(message);
+    showVisualFeedback({
+      type: "remove",
+      title: "Item Removed",
+      detail: `${item.name}`,
+      emoji: validateEmoji(item.emoji),
+      category: item.category
+    });
   }
 
   async function updateItem(item, changes) {
@@ -153,7 +265,15 @@ function App() {
     if (!response.ok) throw new Error("Could not search products");
     const result = await response.json();
     setProducts(result);
-    setVoiceMessage(result.length ? `Found ${result.length} product${result.length === 1 ? "" : "s"}.` : "No products matched that search.");
+    if (hapticsEnabled) triggerHaptic([30, 40]);
+    const message = result.length ? `Found ${result.length} product${result.length === 1 ? "" : "s"} for "${filters.query || 'search'}".` : "No products matched that search.";
+    setVoiceMessage(message);
+    showVisualFeedback({
+      type: "search",
+      title: "Products Searched",
+      detail: result.length ? `Found ${result.length} matches for "${filters.query || 'search'}"` : `No matches found for "${filters.query}"`,
+      emoji: "🔍"
+    });
   }
 
   async function executeCommand(value) {
@@ -164,7 +284,10 @@ function App() {
       if (action.intent === "search") await searchProducts(action);
       if (action.intent === "remove") await removeItem(action.name || action.item);
       if (action.intent === "add") await addItem(action.item, action.quantity, action.category, action.emoji, action.priority, action.unitPrice);
-    } catch { setVoiceMessage("Something went wrong. Please make sure the backend server is running."); }
+    } catch {
+      if (hapticsEnabled) triggerHaptic([80, 40, 80]);
+      setVoiceMessage("Something went wrong. Please make sure the backend server is running.");
+    }
     finally { setIsLoading(false); }
   }
 
@@ -179,6 +302,10 @@ function App() {
     } catch {
       // ignore
     }
+
+    if (hapticsEnabled) triggerHaptic([30]);
+    if (soundEnabled) playAudioChime("listen");
+
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = languageCodes[selectedLanguage] || "en-US";
@@ -206,6 +333,7 @@ function App() {
     recognition.onerror = (event) => {
       setIsRecording(false);
       recognitionRef.current = null;
+      if (hapticsEnabled) triggerHaptic([80, 40, 80]);
       let message = `Voice error: ${event.error}. Please try again.`;
       if (event.error === "not-allowed") {
         message = "Microphone access was blocked. Please click the camera/mic icon in your address bar to allow access.";
@@ -242,12 +370,188 @@ function App() {
 
   return <main className="app">
     <section className="page-content">
-      <header className="hero"><p className="eyebrow">VOICE SHOPPING ASSISTANT</p><h1>Voxie</h1><p className="intro">Say “add 2 bottles of water”, “remove milk” or “find toothpaste under $5”.</p><div className="language-list">{languages.map((language) => <button key={language} className={selectedLanguage === language ? "language active" : "language"} onClick={() => setSelectedLanguage(language)}>{language}</button>)}</div></header>
+      <header className="hero">
+        <div className="hero-top-row">
+          <p className="eyebrow">VOICE SHOPPING ASSISTANT</p>
+          <div className="feedback-toggles">
+            <button
+              className={`toggle-pill ${hapticsEnabled ? "active" : ""}`}
+              onClick={() => {
+                const next = !hapticsEnabled;
+                setHapticsEnabled(next);
+                if (next) triggerHaptic([30, 40]);
+              }}
+              title="Toggle haptic vibration feedback"
+              aria-label="Toggle haptic vibration"
+            >
+              📳 {hapticsEnabled ? "Haptics On" : "Haptics Off"}
+            </button>
+            <button
+              className={`toggle-pill ${soundEnabled ? "active" : ""}`}
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) playAudioChime("listen");
+              }}
+              title="Toggle audio feedback chimes"
+              aria-label="Toggle sound chimes"
+            >
+              🔔 {soundEnabled ? "Sound On" : "Sound Off"}
+            </button>
+          </div>
+        </div>
+        <h1>Voxie</h1>
+        <p className="intro">Say “add 2 bottles of water”, “remove milk” or “find toothpaste under $5”.</p>
+        <div className="language-list">{languages.map((language) => <button key={language} className={selectedLanguage === language ? "language active" : "language"} onClick={() => setSelectedLanguage(language)}>{language}</button>)}</div>
+      </header>
+
+      {voiceFeedback && (
+        <aside className={`voice-feedback-hud ${voiceFeedback.type}`} role="status" aria-live="polite">
+          <div className="hud-icon-wrap">{voiceFeedback.emoji}</div>
+          <div className="hud-content">
+            <div className="hud-header">
+              <span className={`hud-badge badge-${voiceFeedback.type}`}>
+                {voiceFeedback.type === "add" ? "✓ Voice Added" : voiceFeedback.type === "remove" ? "✕ Voice Removed" : voiceFeedback.type === "search" ? "🔍 Searched" : "✦ Voice Info"}
+              </span>
+              {voiceFeedback.priority && <span className={`hud-priority priority-${voiceFeedback.priority}`}>{voiceFeedback.priority}</span>}
+            </div>
+            <strong>{voiceFeedback.detail}</strong>
+          </div>
+          <button className="hud-close" onClick={() => setVoiceFeedback(null)} aria-label="Dismiss feedback">×</button>
+        </aside>
+      )}
+
       <section className="summary-card"><p>{totalItems} {totalItems === 1 ? "item" : "items"} to buy</p><strong>~${estimatedTotal.toFixed(2)}</strong><span>{missingPriceCount ? `${missingPriceCount} price${missingPriceCount === 1 ? "" : "s"} needed` : "estimated"}</span></section>
       <p className="notice">{isLoading ? "Processing your request..." : `✦ ${voiceMessage}`}</p>
       <section className="budget-card"><div><p className="section-kicker">MONTHLY PLAN</p><h2>Set your grocery budget</h2><p className="budget-copy">Voxie will protect essentials first and defer lower-priority items when needed.</p></div><label className="budget-input"><span>$</span><input type="number" min="0" step="1" value={monthlyBudget || ""} onChange={(event) => updateBudget(event.target.value).catch(() => setVoiceMessage("Could not update your budget."))} placeholder="0" aria-label="Monthly grocery budget" /></label><div className="budget-stats"><span><strong>${budgetPlan.plannedSpend.toFixed(2)}</strong> planned</span><span><strong>${budgetPlan.remaining.toFixed(2)}</strong> remaining</span></div></section>
       <form className="command-row" onSubmit={(event) => { event.preventDefault(); executeCommand(command); }}><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Type or say a command..." aria-label="Shopping command" /><button className="add-button" aria-label="Submit command">+</button></form>
-      <section className="list-section"><h2>Your list</h2>{items.length === 0 ? <div className="empty-list">Nothing here yet. Tap the mic and say what you need.</div> : <div className="item-list">{items.map((item) => { const emoji = validateEmoji(item.emoji); return <article className={`list-item ${item.completed ? "completed" : ""}`} key={item.id}><div className="item-art mint">{emoji}</div><button className="check-button" aria-label={`Mark ${item.name} complete`} onClick={() => updateItem(item, { completed: !item.completed })}>{item.completed ? "✓" : ""}</button><div className="item-copy"><strong>{item.name}</strong><p>{item.quantity} · {item.category}</p><label className="price-editor"><span>Unit price</span><div><b>$</b><input type="number" min="0" step="0.01" value={item.unitPrice ?? ""} placeholder="Price" aria-label={`Set price for ${item.name}`} onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))} onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))} /></div></label></div><div className="item-actions"><select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}><option value="high">Essential</option><option value="medium">Useful</option><option value="low">Can wait</option></select><div className="quantity-controls"><button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button></div></div><button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button></article>; })}</div>}</section>
+      <section className="list-section">
+        <div className="list-header-row">
+          <div>
+            <h2>Your list</h2>
+            <p className="list-subtitle">
+              {totalItems} {totalItems === 1 ? "item" : "items"} &bull; {items.filter((i) => i.completed).length} checked
+            </p>
+          </div>
+          {items.length > 0 && (
+            <div className="list-quick-actions">
+              <button
+                className="clear-completed-btn"
+                onClick={() => {
+                  const completedItems = items.filter((i) => i.completed);
+                  completedItems.forEach((i) => removeItem(i.name));
+                }}
+                disabled={!items.some((i) => i.completed)}
+              >
+                Clear checked
+              </button>
+            </div>
+          )}
+        </div>
+
+        {items.length > 0 && (
+          <div className="list-progress-bar-wrap" title={`${Math.round((items.filter((i) => i.completed).length / items.length) * 100 || 0)}% completed`}>
+            <div
+              className="list-progress-fill"
+              style={{ width: `${(items.filter((i) => i.completed).length / items.length) * 100 || 0}%` }}
+            />
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div className="category-filter-chips">
+            {["All", "Produce", "Dairy", "Bakery", "Beverages", "Snacks", "Household"].map((cat) => {
+              const count = cat === "All" ? items.length : items.filter((i) => i.category?.toLowerCase() === cat.toLowerCase()).length;
+              if (count === 0 && cat !== "All") return null;
+              return (
+                <button
+                  key={cat}
+                  className={`filter-chip ${activeCategoryFilter === cat ? "active" : ""}`}
+                  onClick={() => setActiveCategoryFilter(cat)}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {items.length === 0 ? (
+          <div className="empty-list interactive-empty">
+            <span className="empty-sparkle">🧺</span>
+            <h3>Your list is clean and empty</h3>
+            <p>Tap the mic or choose a quick grocery item to get started:</p>
+            <div className="quick-add-starters">
+              {["🍎 Gala Apples", "🥛 Whole Milk", "🍞 Wheat Bread", "🥚 Farm Eggs", "🥑 Avocados", "🥬 Spinach"].map((itemStr) => (
+                <button
+                  key={itemStr}
+                  className="quick-starter-pill"
+                  onClick={() => executeCommand(`add ${itemStr.replace(/^[^\s]+\s*/, "")}`)}
+                >
+                  + {itemStr}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="item-list">
+            {items
+              .filter((item) => activeCategoryFilter === "All" || item.category?.toLowerCase() === activeCategoryFilter.toLowerCase())
+              .map((item) => {
+                const emoji = validateEmoji(item.emoji);
+                const isHighlighted = highlightedItemId === item.id;
+                return (
+                  <article className={`list-item ${item.completed ? "completed" : ""} ${isHighlighted ? "voice-highlighted" : ""}`} key={item.id}>
+                    <div className="item-art mint">{emoji}</div>
+                    <button
+                      className="check-button"
+                      aria-label={`Mark ${item.name} complete`}
+                      onClick={() => {
+                        if (hapticsEnabled) triggerHaptic([35]);
+                        updateItem(item, { completed: !item.completed });
+                      }}
+                    >
+                      {item.completed ? "✓" : ""}
+                    </button>
+                    <div className="item-copy">
+                      <strong>{item.name}</strong>
+                      <p>{item.quantity} &middot; {item.category}</p>
+                      <label className="price-editor">
+                        <span>Unit price</span>
+                        <div>
+                          <b>$</b>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.unitPrice ?? ""}
+                            placeholder="Price"
+                            aria-label={`Set price for ${item.name}`}
+                            onChange={(event) => setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, unitPrice: event.target.value } : entry))}
+                            onBlur={(event) => updateItem(item, { unitPrice: event.target.value === "" ? null : Number(event.target.value) }).catch(() => setVoiceMessage("Could not save that price."))}
+                          />
+                        </div>
+                      </label>
+                    </div>
+                    <div className="item-actions">
+                      <select value={item.priority || "medium"} aria-label={`Set necessity for ${item.name}`} onChange={(event) => updateItem(item, { priority: event.target.value })}>
+                        <option value="high">Essential</option>
+                        <option value="medium">Useful</option>
+                        <option value="low">Can wait</option>
+                      </select>
+                      <div className="quantity-controls">
+                        <button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateItem(item, { quantity: Math.max(1, item.quantity - 1) })}>−</button>
+                        <span>{item.quantity}</span>
+                        <button aria-label={`Increase ${item.name} quantity`} onClick={() => updateItem(item, { quantity: item.quantity + 1 })}>+</button>
+                      </div>
+                    </div>
+                    <button className="remove-button" onClick={() => executeCommand(`remove ${item.name}`)}>Remove</button>
+                  </article>
+                );
+              })}
+          </div>
+        )}
+      </section>
       <section className="planner-section"><div className="planner-heading"><div><p className="section-kicker">AI PRIORITY PLAN</p><h2>What to buy first</h2></div><span>{budgetPlan.defer.length ? `${budgetPlan.defer.length} deferred` : "All covered"}</span></div>{budgetPlan.buyNow.length === 0 && budgetPlan.defer.length === 0 ? <p className="planner-empty">Add groceries and set a budget to create your plan.</p> : <div className="plan-columns"><div><h3>Buy first</h3>{budgetPlan.buyNow.length ? budgetPlan.buyNow.map((item) => <div className="plan-item" key={`buy-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.priority === "high" ? "Essential" : "Within budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing selected yet.</p>}</div><div><h3>Defer</h3>{budgetPlan.defer.length ? budgetPlan.defer.map((item) => <div className="plan-item deferred" key={`defer-${item.id}`}><span>{validateEmoji(item.emoji)}</span><div><strong>{item.name}</strong><small>{item.estimatedCost == null ? "Add a price to include it" : "Lower priority or over budget"}</small></div><b>{item.estimatedCost == null ? "Price needed" : `$${item.estimatedCost.toFixed(2)}`}</b></div>) : <p className="planner-empty">Nothing needs to wait.</p>}</div></div>}</section>
       <section className="cart-nutrition-card">
         <div className="nutrition-heading">

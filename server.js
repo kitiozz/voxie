@@ -30,9 +30,9 @@ function validateEmoji(value) {
 
 function cleanItemName(value) {
   return String(value ?? "")
-    .replace(/^(hello|hi|hey|please)\b\s*/i, "")
-    .replace(/^(add|buy|get|put|need|i need|i want)\b\s*/i, "")
-    .replace(/\s+(to my list|on my list)$/i, "")
+    .replace(/^(hello|hi|hey|please|voxie|ok|okay)\b\s*/i, "")
+    .replace(/^(add|buy|get|put|need|i need|i want|we need|we are out of|pick up|grab|purchase|toss in|include|agregar|añadir|comprar|necesito|ajouter|acheter|mettre|il me faut|hinzufügen|kaufen|brauche|जोड़ें|खरीदें|चाहिए|डालें)\b\s*/i, "")
+    .replace(/\s+(to my list|on my list|to the cart|to the list|in my list|from the store|please)$/i, "")
     .trim();
 }
 
@@ -216,34 +216,48 @@ function parseFallbackCommand(raw) {
   const lower = text.toLowerCase();
 
   // Search intent
-  if (/^(find|search|show|look for)\b/i.test(lower)) {
-    const query = lower.replace(/^(find|search|show|look for)\b\s*/i, "").replace(/under\s*\$?\d+/i, "").trim();
+  if (/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b/i.test(lower)) {
+    const query = lower
+      .replace(/^(find|search|show|look for|buscar|chercher|suchen|खोजें)\b\s*/i, "")
+      .replace(/under\s*\$?\d+/i, "")
+      .trim();
     const maxPriceMatch = lower.match(/under\s*\$?(\d+(?:\.\d+)?)/i);
-    const organic = lower.includes("organic");
+    const organic = lower.includes("organic") || lower.includes("orgánico") || lower.includes("bio");
     return {
       intent: "search",
-      query,
+      query: cleanItemName(query) || query,
       organic,
       maxPrice: maxPriceMatch ? maxPriceMatch[1] : undefined
     };
   }
 
   // Remove intent
-  if (/^(remove|delete|drop)\b/i.test(lower)) {
-    const item = lower.replace(/^(remove|delete|drop)\b\s*/i, "").replace(/from my list|on my list/i, "").trim();
+  if (/^(remove|delete|drop|take off|take out|scratch off|scratch|cross out|don't need|clear out|clear|erase|cut|get rid of|quitar|eliminar|borrar|sacar|supprimer|retirer|enlever|effacer|löschen|entfernen|streichen|हटाएं|हटाओ|डिलीट करो)\b/i.test(lower) ||
+      (/\b(from my list|off my list|off the list|from the list|anymore)\b/i.test(lower) && /(remove|delete|drop|take|scratch|don't|no)/i.test(lower))) {
+    const item = lower
+      .replace(/^(remove|delete|drop|take off|take out|scratch off|scratch|cross out|don't need|clear out|clear|erase|cut|get rid of|quitar|eliminar|borrar|sacar|supprimer|retirer|enlever|effacer|löschen|entfernen|streichen|हटाएं|हटाओ|डिलीट करो)\b\s*/i, "")
+      .replace(/from my list|off my list|from the list|on my list|off the cart|from the cart|anymore|please/gi, "")
+      .replace(/^(the|a|an|some)\b\s*/i, "")
+      .trim();
     return {
       intent: "remove",
-      name: item,
-      item: item
+      name: item || text,
+      item: item || text
     };
   }
 
   // Add intent
-  const numberWords = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  const numberWords = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    dozen: 12, "half dozen": 6, couple: 2, pair: 2, few: 3,
+    un: 1, une: 1, dos: 2, deux: 2, tres: 3, trois: 3, cuatro: 4, quatre: 4, cinco: 5, cinq: 5,
+    ein: 1, eine: 1, zwei: 2, drei: 3, vier: 4, fünf: 5,
+    एक: 1, दो: 2, तीन: 3, चार: 4, पांच: 5
+  };
   let qty = 1;
   let remaining = text;
 
-  const numMatch = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:bottles? of|cans? of|bags? of|boxes? of|packs? of|kg of|g of|bunches? of|loaves of|loaf of)?/i);
+  const numMatch = text.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|dozen|half dozen|couple|pair|few|un|une|dos|deux|tres|trois|cuatro|quatre|cinco|cinq|ein|eine|zwei|drei|vier|fünf|एक|दो|तीन|चार|पांच)\s+(?:bottles? of|cans? of|bags? of|boxes? of|packs? of|kg of|g of|litres? of|liters? of|bunches? of|loaves of|loaf of|cartons? of|pieces? of|de|d'|von)?/i);
   if (numMatch) {
     const foundNum = numMatch[1].toLowerCase();
     qty = numberWords[foundNum] || parseInt(foundNum, 10) || 1;
@@ -251,23 +265,24 @@ function parseFallbackCommand(raw) {
   }
 
   let priority = "medium";
-  if (/(essential|urgent|must have|important|critical|staple)/i.test(lower)) {
+  if (/(essential|urgent|must have|important|critical|staple|asap|emergency|urgente|wichtig|जरूरी)/i.test(lower)) {
     priority = "high";
-    remaining = remaining.replace(/(essential|urgent|must have|important|critical|staple)/gi, "");
-  } else if (/(optional|can wait|treat|snack|luxury|maybe)/i.test(lower)) {
+    remaining = remaining.replace(/(essential|urgent|must have|important|critical|staple|asap|emergency|urgente|wichtig|जरूरी)/gi, "");
+  } else if (/(optional|can wait|treat|snack|luxury|maybe|if cheap|opcional|peut attendre|wenn billig|वैकल्पिक)/i.test(lower)) {
     priority = "low";
-    remaining = remaining.replace(/(optional|can wait|treat|snack|luxury|maybe)/gi, "");
+    remaining = remaining.replace(/(optional|can wait|treat|snack|luxury|maybe|if cheap|opcional|peut attendre|wenn billig|वैकल्पिक)/gi, "");
   }
 
   const cleaned = cleanItemName(remaining);
+  const finalName = cleaned || cleanItemName(text) || text;
   return {
     intent: "add",
-    item: cleaned || text,
-    name: cleaned || text,
+    item: finalName,
+    name: finalName,
     quantity: qty,
     priority,
-    category: categoryFor(cleaned || text),
-    emoji: emojiFor(cleaned || text)
+    category: categoryFor(finalName),
+    emoji: emojiFor(finalName)
   };
 }
 
